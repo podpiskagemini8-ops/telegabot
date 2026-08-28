@@ -90,6 +90,22 @@ async def main():
     # Установка команд в меню
     await set_bot_commands(bot)
 
+    # Если бот запущен на Render/Heroku в качестве бесплатного Web Service, запускаем HTTP health check
+    port = os.getenv("PORT")
+    if port and port.isdigit():
+        try:
+            from aiohttp import web
+            app = web.Application()
+            app.router.add_get("/", lambda req: web.Response(text="Bot is running!"))
+            app.router.add_get("/health", lambda req: web.Response(text="OK"))
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, "0.0.0.0", int(port))
+            await site.start()
+            logger.info(f"Health-check HTTP сервер запущен на порту {port} (для Render Free)")
+        except Exception as e:
+            logger.warning(f"Не удалось запустить health-check сервер: {e}")
+
     # Запуск поллинга
     try:
         bot_info = await bot.get_me()
