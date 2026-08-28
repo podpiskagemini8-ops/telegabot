@@ -106,6 +106,22 @@ async def main():
         except Exception as e:
             logger.warning(f"Не удалось запустить health-check сервер: {e}")
 
+    # Защита от засыпания Render (самопинг каждые 10 минут)
+    render_url = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("APP_URL")
+    if render_url:
+        async def keep_alive(url: str):
+            logger.info(f"Включен автопинг против засыпания Render: {url}")
+            while True:
+                await asyncio.sleep(600)  # каждые 10 минут
+                try:
+                    import urllib.request
+                    urllib.request.urlopen(f"{url.rstrip('/')}/health", timeout=10)
+                    logger.info("Keep-alive ping отправлен успешно!")
+                except Exception:
+                    pass
+
+        asyncio.create_task(keep_alive(render_url))
+
     # Запуск поллинга
     try:
         bot_info = await bot.get_me()
