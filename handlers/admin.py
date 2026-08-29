@@ -1,4 +1,5 @@
 import asyncio
+import html
 import config
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
@@ -301,9 +302,28 @@ async def process_ban_user(message: Message, state: FSMContext):
 
 # --- GOOGLE GEMINI 3.7 FLASH ИЗОЛИРОВАННЫЕ ДИАЛОГИ И AI ПОМОЩНИК ---
 
+# --- GOOGLE GEMINI 3.7 FLASH ИЗОЛИРОВАННЫЕ ДИАЛОГИ И AI ПОМОЩНИК ---
+
 async def is_gemini_admin(user_id: int) -> bool:
     """Проверка прав доступа к Gemini AI (главный админ и назначенные админы)."""
     return user_id == 7213741349 or user_id == config.SUPER_ADMIN_ID or (await db.is_admin(user_id))
+
+async def _safe_edit_message(callback: CallbackQuery, text_html: str, reply_markup=None):
+    """Безопасное редактирование сообщения с мгновенным callback.answer и защитой от сбоев разметки."""
+    try:
+        await callback.answer()
+    except Exception:
+        pass
+
+    try:
+        await callback.message.edit_text(text_html, parse_mode="HTML", reply_markup=reply_markup)
+    except Exception:
+        import re
+        plain_text = re.sub(r"<[^>]+>", "", text_html)
+        try:
+            await callback.message.edit_text(plain_text, parse_mode=None, reply_markup=reply_markup)
+        except Exception:
+            pass
 
 @router.callback_query(F.data.in_({"admin_gemini_chat", "admin_flux", "admin_nano_banana"}))
 async def callback_admin_gemini_chat(callback: CallbackQuery, state: FSMContext):
@@ -331,24 +351,24 @@ async def callback_admin_gemini_chat(callback: CallbackQuery, state: FSMContext)
         active_chat_id = active_chat["id"]
         await state.update_data(active_gemini_chat_id=active_chat_id)
 
-    chat_info = "_(нет активного диалога, начните новый)_"
+    chat_info = "<i>(нет активного диалога, начните новый)</i>"
     if active_chat:
-        c_title = active_chat['title']
-        chat_info = f"«*{c_title}*» (сообщений: {active_chat.get('messages_count', 0)})"
+        c_title = html.escape(active_chat['title'])
+        chat_info = f"«<b>{c_title}</b>» (сообщений: {active_chat.get('messages_count', 0)})"
 
     text = (
-        "🤖 *GOOGLE GEMINI 3.7 FLASH — AI ЧАТ*\n"
+        "🤖 <b>GOOGLE GEMINI 3.7 FLASH — AI ЧАТ</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔥 Модель: `{config.GEMINI_MODEL}` *(Google DeepMind)*\n"
-        f"🔒 *Ваши личные диалоги:* {len(user_chats)} шт. _(приватны и изолированы)_\n"
-        f"💬 *Текущий диалог:* {chat_info}\n\n"
-        "Каждый администратор имеет *строго свои отдельные диалоги*, которые сохраняются в базе. Вы можете переключаться между ними в любой момент или создавать новые с чистого листа.\n\n"
+        f"🔥 Модель: <code>{html.escape(config.GEMINI_MODEL)}</code> <b>(Google AI)</b>\n"
+        f"🔒 <b>Ваши личные диалоги:</b> {len(user_chats)} шт. <i>(приватны и изолированы)</i>\n"
+        f"💬 <b>Текущий диалог:</b> {chat_info}\n\n"
+        "Каждый администратор имеет <b>строго свои отдельные диалоги</b> в базе данных. Вы можете переключаться между ними в любой момент или создавать новые с чистого листа.\n\n"
         "Выберите действие:"
     )
 
-    await callback.message.edit_text(
+    await _safe_edit_message(
+        callback,
         text,
-        parse_mode="Markdown",
         reply_markup=get_gemini_menu_kb(active_chat_id=active_chat_id, chats_count=len(user_chats))
     )
 
@@ -366,19 +386,19 @@ async def callback_gemini_new_chat(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.waiting_for_gemini_prompt)
 
     text = (
-        "🤖 *НОВЫЙ ДИАЛОГ С GEMINI 3.7 FLASH*\n"
+        "🤖 <b>НОВЫЙ ДИАЛОГ С GEMINI 3.7 FLASH</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "✨ *Создан чистый диалог с ИИ.*\n\n"
-        "✍️ *Напишите ваш первый вопрос или тему:*\n\n"
-        "_Примеры:_\n"
-        "• _Придумай 5 цепляющих постов для рассылки в боте_\n"
-        "• _Как улучшить конверсию Telegram-бота?_\n"
-        "• _Напиши Python скрипт для решения задачи..._"
+        "✨ <b>Создан чистый диалог с ИИ.</b>\n\n"
+        "✍️ <b>Напишите ваш первый вопрос или тему:</b>\n\n"
+        "<i>Примеры:</i>\n"
+        "• <i>Придумай 5 цепляющих постов для рассылки в боте</i>\n"
+        "• <i>Как улучшить конверсию Telegram-бота?</i>\n"
+        "• <i>Напиши Python скрипт для решения задачи...</i>"
     )
 
-    await callback.message.edit_text(
+    await _safe_edit_message(
+        callback,
         text,
-        parse_mode="Markdown",
         reply_markup=get_cancel_kb()
     )
 
@@ -393,27 +413,27 @@ async def callback_gemini_list_chats(callback: CallbackQuery, state: FSMContext)
     user_chats = await db.get_user_ai_chats(user_id)
     if not user_chats:
         text = (
-            "📂 *ВАШИ ДИАЛОГИ С ИИ*\n"
+            "📂 <b>ВАШИ ДИАЛОГИ С ИИ</b>\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
             "У вас пока нет сохранённых диалогов.\n\n"
-            "Нажмите *«➕ Создать новый диалог»*, чтобы начать общение с Gemini 3.7 Flash."
+            "Нажмите <b>«➕ Создать новый диалог»</b>, чтобы начать общение с Gemini 3.7 Flash."
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="➕ Создать новый диалог", callback_data="gemini_new_chat")],
             [InlineKeyboardButton(text="◀️ В меню Gemini", callback_data="admin_gemini_chat")]
         ])
-        await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
+        await _safe_edit_message(callback, text, reply_markup=kb)
         return
 
     text = (
-        "📂 *ВАШИ СОХРАНЁННЫЕ ДИАЛОГИ С ИИ*\n"
+        "📂 <b>ВАШИ СОХРАНЁННЫЕ ДИАЛОГИ С ИИ</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "Нажмите на любой диалог, чтобы открыть его историю и продолжить общение:"
     )
 
-    await callback.message.edit_text(
+    await _safe_edit_message(
+        callback,
         text,
-        parse_mode="Markdown",
         reply_markup=get_gemini_chats_list_kb(user_chats)
     )
 
@@ -438,28 +458,28 @@ async def callback_gemini_open_chat(callback: CallbackQuery, state: FSMContext):
     preview_lines = []
     if messages:
         for m in messages:
-            role_icon = "👤 *Вы:*" if m["role"] == "user" else "🤖 *Gemini:*"
-            short_content = m["content"].strip().replace("\n", " ")
-            if len(short_content) > 70:
-                short_content = short_content[:70] + "..."
-            preview_lines.append(f"{role_icon} {short_content}")
+            role_icon = "👤 <b>Вы:</b>" if m["role"] == "user" else "🤖 <b>Gemini:</b>"
+            raw_content = m["content"].strip().replace("\n", " ")
+            if len(raw_content) > 60:
+                raw_content = raw_content[:60] + "..."
+            preview_lines.append(f"{role_icon} {html.escape(raw_content)}")
     else:
-        preview_lines.append("_В этом диалоге ещё нет сообщений._")
+        preview_lines.append("<i>В этом диалоге ещё нет сообщений.</i>")
 
     preview_text = "\n".join(preview_lines)
 
     text = (
-        f"💬 *ДИАЛОГ:* «{chat['title']}»\n"
-        f"📅 Обновлён: `{chat.get('updated_at', '')[:19]}`\n"
+        f"💬 <b>ДИАЛОГ:</b> «{html.escape(chat['title'])}»\n"
+        f"📅 Обновлён: <code>{html.escape(str(chat.get('updated_at', ''))[:19])}</code>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"{preview_text}\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "Что хотите сделать?"
     )
 
-    await callback.message.edit_text(
+    await _safe_edit_message(
+        callback,
         text,
-        parse_mode="Markdown",
         reply_markup=get_gemini_chat_view_kb(chat_id)
     )
 
@@ -481,15 +501,15 @@ async def callback_gemini_ask_in(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.waiting_for_gemini_prompt)
 
     text = (
-        f"✍️ *ВВОД СООБЩЕНИЯ В ДИАЛОГ:*\n"
-        f"«*{chat['title']}*»\n"
+        f"✍️ <b>ВВОД СООБЩЕНИЯ В ДИАЛОГ:</b>\n"
+        f"«<b>{html.escape(chat['title'])}</b>»\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "Напишите ваше сообщение (нейросеть помнит всю историю этого диалога):"
     )
 
-    await callback.message.edit_text(
+    await _safe_edit_message(
+        callback,
         text,
-        parse_mode="Markdown",
         reply_markup=get_cancel_kb()
     )
 
@@ -508,14 +528,14 @@ async def callback_gemini_del_conf(callback: CallbackQuery, state: FSMContext):
         return
 
     text = (
-        f"⚠️ *УДАЛЕНИЕ ДИАЛОГА*\n"
+        f"⚠️ <b>УДАЛЕНИЕ ДИАЛОГА</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"Вы действительно хотите навсегда удалить диалог «*{chat['title']}*» и всю историю сообщений?"
+        f"Вы действительно хотите навсегда удалить диалог «<b>{html.escape(chat['title'])}</b>» и всю историю сообщений?"
     )
 
-    await callback.message.edit_text(
+    await _safe_edit_message(
+        callback,
         text,
-        parse_mode="Markdown",
         reply_markup=get_gemini_confirm_delete_kb(chat_id)
     )
 
@@ -539,7 +559,7 @@ async def callback_gemini_del_yes(callback: CallbackQuery, state: FSMContext):
 
 async def _send_gemini_response(message: Message, prompt: str, reply: str, chat_id: int):
     """Отправка ответа Gemini пользователю с разбивкой длинных сообщений."""
-    header = f"🤖 *Gemini 3.7 Flash:*\n\n"
+    header = "🤖 *Gemini 3.7 Flash:*\n\n"
     full_text = header + reply
 
     # Если текст помещается в одно сообщение (лимит Telegram 4096 символов)
