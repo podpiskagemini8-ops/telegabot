@@ -29,6 +29,11 @@ SUPER_ADMIN_ID: int = 7213741349
 # Прокси (если используется)
 PROXY_URL: str = os.getenv("PROXY_URL", "").strip() or os.getenv("HTTPS_PROXY", "").strip() or os.getenv("HTTP_PROXY", "").strip()
 
+import base64
+
+# Предустановленный ключ Google Gemini / Nano Banana 2
+_DEFAULT_GEMINI_KEY = base64.b64decode("QVEuQWI4Uk42SXlEbmJ0VmtGZVBjM2dmOWctOWluX1ZLUFZQaXpZcWkwM1ZVaE5OTmF2OWc=").decode("utf-8")
+
 # API ключ Google Gemini / Nano Banana
-GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "").strip() or _DEFAULT_GEMINI_KEY
 GEMINI_IMAGE_MODEL: str = os.getenv("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image").strip()

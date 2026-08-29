@@ -29,7 +29,7 @@ async def generate_banana_image(
     :param proxy: Прокси-сервер при необходимости.
     :return: Бинарные данные изображения (bytes).
     """
-    key = api_key or config.GEMINI_API_KEY
+    key = api_key or getattr(config, "GEMINI_API_KEY", "") or getattr(config, "_DEFAULT_GEMINI_KEY", "")
     if not key:
         raise NanoBananaError("API ключ Google Gemini не указан.")
 
