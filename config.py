@@ -26,6 +26,9 @@ DB_PATH: str = os.getenv("DB_PATH", "database.sqlite3")
 # Супер-администратор (владелец)
 SUPER_ADMIN_ID: int = 7213741349
 
+# ID администратора Маши
+MASHA_ID: int = 2083953144
+
 # Прокси (если используется)
 PROXY_URL: str = os.getenv("PROXY_URL", "").strip() or os.getenv("HTTPS_PROXY", "").strip() or os.getenv("HTTP_PROXY", "").strip()
 

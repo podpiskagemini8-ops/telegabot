@@ -16,7 +16,9 @@ from keyboards.inline import (
     get_gemini_chats_list_kb,
     get_gemini_chat_view_kb,
     get_gemini_reply_kb,
-    get_gemini_confirm_delete_kb
+    get_gemini_confirm_delete_kb,
+    get_masha_chats_list_kb,
+    get_masha_chat_view_kb
 )
 from services.gemini_ai import ask_gemini, GeminiError
 
@@ -758,3 +760,97 @@ async def cmd_gemini_direct(message: Message, state: FSMContext):
             parse_mode="Markdown",
             reply_markup=get_gemini_menu_kb(active_chat_id=active_chat_id, chats_count=len(user_chats))
         )
+
+# --- ПАНЕЛЬ СУПЕРАДМИНА: ПРОСМОТР ДИАЛОГОВ МАШИ С GEMINI ---
+
+def is_super_admin_user(user_id: int) -> bool:
+    return user_id == 7213741349 or user_id == config.SUPER_ADMIN_ID
+
+@router.callback_query(F.data == "admin_masha_gemini")
+async def callback_admin_masha_gemini(callback: CallbackQuery, state: FSMContext):
+    """Просмотр списка диалогов Маши (доступно только главному админу)."""
+    user_id = callback.from_user.id
+    if not is_super_admin_user(user_id):
+        await callback.answer("⛔ Этот раздел доступен только главному администратору.", show_alert=True)
+        return
+
+    masha_id = getattr(config, "MASHA_ID", 2083953144)
+    masha_chats = await db.get_user_ai_chats(masha_id)
+
+    if not masha_chats:
+        text = (
+            "🌸 <b>ДИАЛОГИ МАШИ С GEMINI</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Администратор Маша (ID: <code>{masha_id}</code>)\n\n"
+            "У Маши пока нет сохранённых диалогов с ИИ в базе данных."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Проверить снова", callback_data="admin_masha_gemini")],
+            [InlineKeyboardButton(text="◀️ Назад в админ-панель", callback_data="admin_main")]
+        ])
+        await _safe_edit_message(callback, text, reply_markup=kb)
+        return
+
+    text = (
+        "🌸 <b>ДИАЛОГИ МАШИ С GEMINI (ID: 2083953144)</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 Всего диалогов в базе: <b>{len(masha_chats)}</b> шт.\n\n"
+        "Нажмите на любой диалог, чтобы прочитать всю историю переписки:"
+    )
+
+    await _safe_edit_message(
+        callback,
+        text,
+        reply_markup=get_masha_chats_list_kb(masha_chats)
+    )
+
+@router.callback_query(F.data.startswith("masha_chat_view:"))
+async def callback_masha_chat_view(callback: CallbackQuery, state: FSMContext):
+    """Чтение полной переписки конкретного диалога Маши."""
+    user_id = callback.from_user.id
+    if not is_super_admin_user(user_id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    chat_id = int(callback.data.split(":")[1])
+    masha_id = getattr(config, "MASHA_ID", 2083953144)
+    chat = await db.get_ai_chat(chat_id, masha_id)
+
+    if not chat:
+        await callback.answer("❌ Диалог не найден.", show_alert=True)
+        await callback_admin_masha_gemini(callback, state)
+        return
+
+    messages = await db.get_ai_messages(chat_id, masha_id, limit=40)
+
+    msg_blocks = []
+    if messages:
+        for m in messages:
+            if m["role"] == "user":
+                role_header = "👤 <b>Маша:</b>"
+            else:
+                role_header = "🤖 <b>Gemini:</b>"
+            
+            content = html.escape(m["content"].strip())
+            if len(content) > 350:
+                content = content[:350] + "..."
+            msg_blocks.append(f"{role_header}\n{content}\n")
+    else:
+        msg_blocks.append("<i>В этом диалоге ещё нет сообщений.</i>")
+
+    history_text = "\n".join(msg_blocks)
+
+    text = (
+        f"🌸 <b>ПЕРЕПИСКА МАШИ:</b> «{html.escape(chat['title'])}»\n"
+        f"📅 Обновлён: <code>{html.escape(str(chat.get('updated_at', ''))[:19])}</code>\n"
+        f"💬 Всего сообщений: <b>{len(messages)}</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{history_text}\n"
+        "━━━━━━━━━━━━━━━━━━━━"
+    )
+
+    await _safe_edit_message(
+        callback,
+        text,
+        reply_markup=get_masha_chat_view_kb(chat_id)
+    )
