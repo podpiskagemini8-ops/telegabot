@@ -5,6 +5,8 @@ from .inline import (
     get_admin_main_kb,
     get_admin_back_kb,
     get_reveal_details_kb,
+    get_flux_menu_kb,
+    get_flux_result_kb,
     get_nano_banana_menu_kb,
     get_banana_result_kb
 )
@@ -17,6 +19,8 @@ __all__ = [
     "get_admin_main_kb",
     "get_admin_back_kb",
     "get_reveal_details_kb",
+    "get_flux_menu_kb",
+    "get_flux_result_kb",
     "get_nano_banana_menu_kb",
     "get_banana_result_kb",
     "get_main_menu_kb"

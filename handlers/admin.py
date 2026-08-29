@@ -11,10 +11,10 @@ from keyboards.inline import (
     get_admin_back_kb,
     get_cancel_kb,
     get_banned_list_kb,
-    get_nano_banana_menu_kb,
-    get_banana_result_kb
+    get_flux_menu_kb,
+    get_flux_result_kb
 )
-from services.nano_banana import generate_banana_images, NanoBananaError
+from services.flux_image import generate_flux_images, FluxError
 
 router = Router(name="admin_router")
 admin_router = router
@@ -23,7 +23,8 @@ class AdminStates(StatesGroup):
     waiting_for_broadcast_msg = State()
     confirm_broadcast = State()
     waiting_for_ban_id = State()
-    waiting_for_banana_prompt = State()
+    waiting_for_flux_prompt = State()
+    waiting_for_banana_prompt = waiting_for_flux_prompt
 
 @router.message(Command("admin"))
 @router.message(F.text == "⚡ Админ-панель")
@@ -296,26 +297,26 @@ async def process_ban_user(message: Message, state: FSMContext):
 
     await message.answer(f"🚫 *Пользователь `{target_id}` заблокирован в боте.*", parse_mode="Markdown", reply_markup=get_admin_back_kb())
 
-# --- GOOGLE NANO BANANO 2 ИЗОБРАЖЕНИЯ ---
+# --- FLUX.1 AI ИЗОБРАЖЕНИЯ ---
 
-def is_banana_admin(user_id: int) -> bool:
+def is_image_admin(user_id: int) -> bool:
     return user_id == 7213741349 or user_id == config.SUPER_ADMIN_ID
 
-@router.callback_query(F.data == "admin_nano_banana")
-async def callback_admin_nano_banana(callback: CallbackQuery, state: FSMContext):
-    """Главное меню генератора Google Nano Banana 2."""
+@router.callback_query(F.data.in_({"admin_flux", "admin_nano_banana"}))
+async def callback_admin_flux(callback: CallbackQuery, state: FSMContext):
+    """Главное меню генератора FLUX."""
     user_id = callback.from_user.id
-    if not is_banana_admin(user_id):
-        await callback.answer("⛔ Функция Nano Banana 2 доступна только главному администратору.", show_alert=True)
+    if not is_image_admin(user_id):
+        await callback.answer("⛔ Функция FLUX доступна только главному администратору.", show_alert=True)
         return
 
     data = await state.get_data()
-    current_count = data.get("banana_count", 1)
+    current_count = data.get("flux_count", 1)
 
     text = (
-        "🍌 *GOOGLE NANO BANANO 2 — AI ГЕНЕРАЦИЯ*\n"
+        "⚡ *FLUX AI — БЕСПЛАТНАЯ ГЕНЕРАЦИЯ*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"🤖 Модель: `{config.GEMINI_IMAGE_MODEL}` *(Nano Banana 2)*\n"
+        "🤖 Модель: `FLUX.1 (Schnell / Dev)`\n"
         f"🖼 Выбрано картинок: *{current_count} шт.*\n\n"
         "Выберите количество изображений (1, 2, 3 или 4) и нажмите *«✍️ Ввести запрос (промпт)»*:"
     )
@@ -323,25 +324,25 @@ async def callback_admin_nano_banana(callback: CallbackQuery, state: FSMContext)
     await callback.message.edit_text(
         text,
         parse_mode="Markdown",
-        reply_markup=get_nano_banana_menu_kb(selected_count=current_count)
+        reply_markup=get_flux_menu_kb(selected_count=current_count)
     )
 
-@router.callback_query(F.data.startswith("banana_count:"))
-async def callback_banana_count(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith("flux_count:") | F.data.startswith("banana_count:"))
+async def callback_flux_count(callback: CallbackQuery, state: FSMContext):
     """Выбор количества генерируемых картинок (1, 2, 3 или 4)."""
     user_id = callback.from_user.id
-    if not is_banana_admin(user_id):
+    if not is_image_admin(user_id):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
 
     new_count = int(callback.data.split(":")[1])
-    await state.update_data(banana_count=new_count)
+    await state.update_data(flux_count=new_count, banana_count=new_count)
     await callback.answer(f"Выбрано: {new_count} шт.")
 
     text = (
-        "🍌 *GOOGLE NANO BANANO 2 — AI ГЕНЕРАЦИЯ*\n"
+        "⚡ *FLUX AI — БЕСПЛАТНАЯ ГЕНЕРАЦИЯ*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"🤖 Модель: `{config.GEMINI_IMAGE_MODEL}` *(Nano Banana 2)*\n"
+        "🤖 Модель: `FLUX.1 (Schnell / Dev)`\n"
         f"🖼 Выбрано картинок: *{new_count} шт.*\n\n"
         "Выберите количество изображений (1, 2, 3 или 4) и нажмите *«✍️ Ввести запрос (промпт)»*:"
     )
@@ -349,27 +350,27 @@ async def callback_banana_count(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         text,
         parse_mode="Markdown",
-        reply_markup=get_nano_banana_menu_kb(selected_count=new_count)
+        reply_markup=get_flux_menu_kb(selected_count=new_count)
     )
 
-@router.callback_query(F.data.startswith("banana_enter_prompt:"))
-async def callback_banana_enter_prompt(callback: CallbackQuery, state: FSMContext):
-    """Запрос промпта для генерации."""
+@router.callback_query(F.data.startswith("flux_enter_prompt:") | F.data.startswith("banana_enter_prompt:"))
+async def callback_flux_enter_prompt(callback: CallbackQuery, state: FSMContext):
+    """Запрос промпта для генерации FLUX."""
     user_id = callback.from_user.id
-    if not is_banana_admin(user_id):
+    if not is_image_admin(user_id):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
 
     count = int(callback.data.split(":")[1])
-    await state.update_data(banana_count=count)
-    await state.set_state(AdminStates.waiting_for_banana_prompt)
+    await state.update_data(flux_count=count, banana_count=count)
+    await state.set_state(AdminStates.waiting_for_flux_prompt)
 
     text = (
-        "🍌 *NANO BANANO 2 — ВВОД ЗАПРОСА*\n"
+        "⚡ *FLUX AI — ВВОД ЗАПРОСА*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"🖼 Количество картинок: *{count} шт.*\n\n"
         "✍️ *Введите описание (промпт) для генерации:*\n\n"
-        "_Пример: Спелый жёлтый банан в темных очках и кожаной куртке летит на ракете в открытом космосе, яркий 3D рендер, 4k, кинематографичный свет, гипердетализация_"
+        "_Пример: Дети играют во дворе летом, солнечные лучи, тёплая атмосфера, кинематографичное фото, photorealistic, 8k, высокая детализация_"
     )
 
     await callback.message.edit_text(
@@ -378,11 +379,11 @@ async def callback_banana_enter_prompt(callback: CallbackQuery, state: FSMContex
         reply_markup=get_cancel_kb()
     )
 
-@router.message(AdminStates.waiting_for_banana_prompt)
-async def process_banana_prompt(message: Message, state: FSMContext):
-    """Обработка введенного промпта и отправка сгенерированных изображений."""
+@router.message(AdminStates.waiting_for_flux_prompt)
+async def process_flux_prompt(message: Message, state: FSMContext):
+    """Обработка введенного промпта и отправка сгенерированных изображений FLUX."""
     user_id = message.from_user.id
-    if not is_banana_admin(user_id):
+    if not is_image_admin(user_id):
         await message.answer("⛔ Нет доступа.")
         return
 
@@ -392,22 +393,20 @@ async def process_banana_prompt(message: Message, state: FSMContext):
         return
 
     data = await state.get_data()
-    count = data.get("banana_count", 1)
-    await state.update_data(last_banana_prompt=prompt, last_banana_count=count)
+    count = data.get("flux_count") or data.get("banana_count") or 1
+    await state.update_data(last_flux_prompt=prompt, last_flux_count=count)
 
     wait_msg = await message.answer(
-        f"⏳ *Генерирую {count} изобр. моделью Nano Banana 2...*\n"
+        f"⏳ *Генерирую {count} изобр. моделью FLUX.1...*\n"
         f"📝 _Запрос:_ «{prompt}»\n\n"
-        f"_Пожалуйста, подождите, отправляю запрос в Google API..._",
+        f"_Пожалуйста, подождите немного..._",
         parse_mode="Markdown"
     )
 
     try:
-        images, errors = await generate_banana_images(
+        images, errors = await generate_flux_images(
             prompt=prompt,
-            count=count,
-            api_key=config.GEMINI_API_KEY,
-            model=config.GEMINI_IMAGE_MODEL
+            count=count
         )
 
         try:
@@ -417,40 +416,40 @@ async def process_banana_prompt(message: Message, state: FSMContext):
 
         if images:
             if len(images) == 1:
-                photo_file = BufferedInputFile(images[0], filename="nano_banana.png")
-                caption = f"🍌 *Nano Banana 2*\n📝 *Запрос:* {prompt}"
+                photo_file = BufferedInputFile(images[0], filename="flux.jpg")
+                caption = f"⚡ *FLUX.1*\n📝 *Запрос:* {prompt}"
                 await message.answer_photo(
                     photo=photo_file,
                     caption=caption,
                     parse_mode="Markdown",
-                    reply_markup=get_banana_result_kb()
+                    reply_markup=get_flux_result_kb()
                 )
             else:
                 media_group = [
                     InputMediaPhoto(
-                        media=BufferedInputFile(img, filename=f"nano_banana_{i+1}.png"),
-                        caption=(f"🍌 *Nano Banana 2 ({len(images)} из {count})*\n📝 *Запрос:* {prompt}" if i == 0 else None),
+                        media=BufferedInputFile(img, filename=f"flux_{i+1}.jpg"),
+                        caption=(f"⚡ *FLUX.1 ({len(images)} из {count})*\n📝 *Запрос:* {prompt}" if i == 0 else None),
                         parse_mode="Markdown"
                     )
                     for i, img in enumerate(images)
                 ]
                 await message.answer_media_group(media=media_group)
                 await message.answer(
-                    f"✅ Успешно сгенерировано *{len(images)} из {count}* изображений.",
+                    f"✅ Успешно сгенерировано *{len(images)} из {count}* изображений (FLUX.1).",
                     parse_mode="Markdown",
-                    reply_markup=get_banana_result_kb()
+                    reply_markup=get_flux_result_kb()
                 )
 
             if errors:
                 err_summary = "\n".join(set(errors))
-                await message.answer(f"⚠️ *Предупреждение при генерации части картинок:*\n_{err_summary}_", parse_mode="Markdown")
+                await message.answer(f"⚠️ *Предупреждение:* _{err_summary}_", parse_mode="Markdown")
         else:
             err_text = "\n".join(set(errors)) if errors else "Неизвестная ошибка генерации."
             await message.answer(
                 f"❌ *Не удалось сгенерировать изображение:*\n\n"
                 f"{err_text}",
                 parse_mode="Markdown",
-                reply_markup=get_banana_result_kb()
+                reply_markup=get_flux_result_kb()
             )
 
     except Exception as e:
@@ -461,40 +460,38 @@ async def process_banana_prompt(message: Message, state: FSMContext):
         await message.answer(
             f"❌ *Произошла ошибка при генерации:*\n\n_{str(e)}_",
             parse_mode="Markdown",
-            reply_markup=get_banana_result_kb()
+            reply_markup=get_flux_result_kb()
         )
 
-@router.callback_query(F.data == "banana_retry")
-async def callback_banana_retry(callback: CallbackQuery, state: FSMContext):
-    """Повторная генерация по последнему запросу."""
+@router.callback_query(F.data.in_({"flux_retry", "banana_retry"}))
+async def callback_flux_retry(callback: CallbackQuery, state: FSMContext):
+    """Повторная генерация FLUX по последнему запросу."""
     user_id = callback.from_user.id
-    if not is_banana_admin(user_id):
+    if not is_image_admin(user_id):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
 
     data = await state.get_data()
-    prompt = data.get("last_banana_prompt")
-    count = data.get("last_banana_count", 1)
+    prompt = data.get("last_flux_prompt") or data.get("last_banana_prompt")
+    count = data.get("last_flux_count") or data.get("last_banana_count") or 1
 
     if not prompt:
         await callback.answer("⚠️ Нет сохраненного запроса для повтора.", show_alert=True)
-        await callback_admin_nano_banana(callback, state)
+        await callback_admin_flux(callback, state)
         return
 
-    await callback.answer("🔄 Запуск повторной генерации...")
+    await callback.answer("🔄 Запуск повторной генерации FLUX...")
     wait_msg = await callback.message.answer(
-        f"⏳ *Повторная генерация {count} изобр. моделью Nano Banana 2...*\n"
+        f"⏳ *Повторная генерация {count} изобр. моделью FLUX.1...*\n"
         f"📝 _Запрос:_ «{prompt}»\n\n"
         f"_Пожалуйста, подождите..._",
         parse_mode="Markdown"
     )
 
     try:
-        images, errors = await generate_banana_images(
+        images, errors = await generate_flux_images(
             prompt=prompt,
-            count=count,
-            api_key=config.GEMINI_API_KEY,
-            model=config.GEMINI_IMAGE_MODEL
+            count=count
         )
 
         try:
@@ -504,19 +501,19 @@ async def callback_banana_retry(callback: CallbackQuery, state: FSMContext):
 
         if images:
             if len(images) == 1:
-                photo_file = BufferedInputFile(images[0], filename="nano_banana.png")
-                caption = f"🍌 *Nano Banana 2 (Повтор)*\n📝 *Запрос:* {prompt}"
+                photo_file = BufferedInputFile(images[0], filename="flux.jpg")
+                caption = f"⚡ *FLUX.1 (Повтор)*\n📝 *Запрос:* {prompt}"
                 await callback.message.answer_photo(
                     photo=photo_file,
                     caption=caption,
                     parse_mode="Markdown",
-                    reply_markup=get_banana_result_kb()
+                    reply_markup=get_flux_result_kb()
                 )
             else:
                 media_group = [
                     InputMediaPhoto(
-                        media=BufferedInputFile(img, filename=f"nano_banana_{i+1}.png"),
-                        caption=(f"🍌 *Nano Banana 2 (Повтор, {len(images)} из {count})*\n📝 *Запрос:* {prompt}" if i == 0 else None),
+                        media=BufferedInputFile(img, filename=f"flux_{i+1}.jpg"),
+                        caption=(f"⚡ *FLUX.1 (Повтор, {len(images)} из {count})*\n📝 *Запрос:* {prompt}" if i == 0 else None),
                         parse_mode="Markdown"
                     )
                     for i, img in enumerate(images)
@@ -525,14 +522,14 @@ async def callback_banana_retry(callback: CallbackQuery, state: FSMContext):
                 await callback.message.answer(
                     f"✅ Успешно сгенерировано *{len(images)} из {count}* изображений.",
                     parse_mode="Markdown",
-                    reply_markup=get_banana_result_kb()
+                    reply_markup=get_flux_result_kb()
                 )
         else:
             err_text = "\n".join(set(errors)) if errors else "Неизвестная ошибка генерации."
             await callback.message.answer(
                 f"❌ *Не удалось сгенерировать изображение:*\n\n{err_text}",
                 parse_mode="Markdown",
-                reply_markup=get_banana_result_kb()
+                reply_markup=get_flux_result_kb()
             )
     except Exception as e:
         try:
@@ -542,35 +539,32 @@ async def callback_banana_retry(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(
             f"❌ *Произошла ошибка при генерации:*\n\n_{str(e)}_",
             parse_mode="Markdown",
-            reply_markup=get_banana_result_kb()
+            reply_markup=get_flux_result_kb()
         )
 
-@router.message(Command("banana", "nano"))
-async def cmd_banana_direct(message: Message, state: FSMContext):
-    """Быстрая команда /banana или /nano для генерации напрямую."""
+@router.message(Command("flux", "banana", "nano"))
+async def cmd_flux_direct(message: Message, state: FSMContext):
+    """Быстрая команда /flux для генерации напрямую."""
     user_id = message.from_user.id
-    if not is_banana_admin(user_id):
+    if not is_image_admin(user_id):
         await message.answer("⛔ Эта команда доступна только главному администратору.")
         return
 
     args = message.text.split(maxsplit=1)
     if len(args) > 1 and args[1].strip():
-        # Промпт передан прямо в команде
         prompt = args[1].strip()
         count = 1
-        await state.update_data(last_banana_prompt=prompt, last_banana_count=count, banana_count=count)
+        await state.update_data(last_flux_prompt=prompt, last_flux_count=count, flux_count=count)
 
         wait_msg = await message.answer(
-            f"⏳ *Генерирую изображение моделью Nano Banana 2...*\n"
+            f"⏳ *Генерирую изображение моделью FLUX.1...*\n"
             f"📝 _Запрос:_ «{prompt}»",
             parse_mode="Markdown"
         )
         try:
-            images, errors = await generate_banana_images(
+            images, errors = await generate_flux_images(
                 prompt=prompt,
-                count=1,
-                api_key=config.GEMINI_API_KEY,
-                model=config.GEMINI_IMAGE_MODEL
+                count=1
             )
             try:
                 await wait_msg.delete()
@@ -578,40 +572,39 @@ async def cmd_banana_direct(message: Message, state: FSMContext):
                 pass
 
             if images:
-                photo_file = BufferedInputFile(images[0], filename="nano_banana.png")
-                caption = f"🍌 *Nano Banana 2*\n📝 *Запрос:* {prompt}"
+                photo_file = BufferedInputFile(images[0], filename="flux.jpg")
+                caption = f"⚡ *FLUX.1*\n📝 *Запрос:* {prompt}"
                 await message.answer_photo(
                     photo=photo_file,
                     caption=caption,
                     parse_mode="Markdown",
-                    reply_markup=get_banana_result_kb()
+                    reply_markup=get_flux_result_kb()
                 )
             else:
                 err_text = "\n".join(set(errors)) if errors else "Неизвестная ошибка."
                 await message.answer(
                     f"❌ *Не удалось сгенерировать изображение:*\n\n{err_text}",
                     parse_mode="Markdown",
-                    reply_markup=get_banana_result_kb()
+                    reply_markup=get_flux_result_kb()
                 )
         except Exception as e:
             try:
                 await wait_msg.delete()
             except Exception:
                 pass
-            await message.answer(f"❌ *Ошибка:* {e}", parse_mode="Markdown", reply_markup=get_banana_result_kb())
+            await message.answer(f"❌ *Ошибка:* {e}", parse_mode="Markdown", reply_markup=get_flux_result_kb())
     else:
-        # Открываем меню выбора параметров
         data = await state.get_data()
-        current_count = data.get("banana_count", 1)
+        current_count = data.get("flux_count", 1)
         text = (
-            "🍌 *GOOGLE NANO BANANO 2 — AI ГЕНЕРАЦИЯ*\n"
+            "⚡ *FLUX AI — БЕСПЛАТНАЯ ГЕНЕРАЦИЯ*\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            f"🤖 Модель: `{config.GEMINI_IMAGE_MODEL}` *(Nano Banana 2)*\n"
+            "🤖 Модель: `FLUX.1 (Schnell / Dev)`\n"
             f"🖼 Выбрано картинок: *{current_count} шт.*\n\n"
             "Выберите количество изображений (1, 2, 3 или 4) и нажмите *«✍️ Ввести запрос (промпт)»*:"
         )
         await message.answer(
             text,
             parse_mode="Markdown",
-            reply_markup=get_nano_banana_menu_kb(selected_count=current_count)
+            reply_markup=get_flux_menu_kb(selected_count=current_count)
         )
