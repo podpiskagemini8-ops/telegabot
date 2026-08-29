@@ -50,6 +50,29 @@ class Database:
                 )
             """)
 
+            # Таблица диалогов с ИИ (строго изолирована для каждого админа)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS ai_chats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Таблица сообщений в диалогах с ИИ
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS ai_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             await db.commit()
 
             # Добавляем админов из конфига при первом запуске
@@ -260,6 +283,99 @@ class Database:
                 LEFT JOIN users u ON b.user_id = u.user_id
                 ORDER BY b.banned_at DESC
             """) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+
+    # ==========================================
+    # Методы для изолированных AI-диалогов админов
+    # ==========================================
+
+    async def create_ai_chat(self, user_id: int, title: str = "Новый диалог") -> int:
+        """Создать новый изолированный диалог для конкретного администратора."""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                INSERT INTO ai_chats (user_id, title)
+                VALUES (?, ?)
+            """, (user_id, title))
+            await db.commit()
+            return cursor.lastrowid
+
+    async def get_user_ai_chats(self, user_id: int, limit: int = 30) -> List[Dict[str, Any]]:
+        """Получить список всех сохраненных диалогов конкретного админа (чужие недоступны)."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            query = """
+                SELECT c.id, c.user_id, c.title, c.created_at, c.updated_at,
+                       COUNT(m.id) AS messages_count
+                FROM ai_chats c
+                LEFT JOIN ai_messages m ON c.id = m.chat_id
+                WHERE c.user_id = ?
+                GROUP BY c.id
+                ORDER BY c.updated_at DESC
+                LIMIT ?
+            """
+            async with db.execute(query, (user_id, limit)) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+
+    async def get_ai_chat(self, chat_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+        """Получить конкретный диалог с проверкой владения (только свой)."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM ai_chats WHERE id = ? AND user_id = ?",
+                (chat_id, user_id)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+
+    async def update_ai_chat_title(self, chat_id: int, user_id: int, title: str):
+        """Обновить заголовок диалога."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE ai_chats
+                SET title = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND user_id = ?
+            """, (title, chat_id, user_id))
+            await db.commit()
+
+    async def delete_ai_chat(self, chat_id: int, user_id: int):
+        """Удалить диалог и все его сообщения."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "DELETE FROM ai_messages WHERE chat_id = ? AND user_id = ?",
+                (chat_id, user_id)
+            )
+            await db.execute(
+                "DELETE FROM ai_chats WHERE id = ? AND user_id = ?",
+                (chat_id, user_id)
+            )
+            await db.commit()
+
+    async def add_ai_message(self, chat_id: int, user_id: int, role: str, content: str):
+        """Сохранить сообщение в диалог."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT INTO ai_messages (chat_id, user_id, role, content)
+                VALUES (?, ?, ?, ?)
+            """, (chat_id, user_id, role, content))
+            await db.execute("""
+                UPDATE ai_chats
+                SET updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND user_id = ?
+            """, (chat_id, user_id))
+            await db.commit()
+
+    async def get_ai_messages(self, chat_id: int, user_id: int, limit: int = 40) -> List[Dict[str, Any]]:
+        """Получить историю сообщений диалога с проверкой владельца."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("""
+                SELECT * FROM ai_messages
+                WHERE chat_id = ? AND user_id = ?
+                ORDER BY id ASC
+                LIMIT ?
+            """, (chat_id, user_id, limit)) as cursor:
                 rows = await cursor.fetchall()
                 return [dict(r) for r in rows]
 

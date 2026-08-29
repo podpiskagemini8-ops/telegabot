@@ -12,7 +12,10 @@ from keyboards.inline import (
     get_cancel_kb,
     get_banned_list_kb,
     get_gemini_menu_kb,
-    get_gemini_reply_kb
+    get_gemini_chats_list_kb,
+    get_gemini_chat_view_kb,
+    get_gemini_reply_kb,
+    get_gemini_confirm_delete_kb
 )
 from services.gemini_ai import ask_gemini, GeminiError
 
@@ -296,55 +299,81 @@ async def process_ban_user(message: Message, state: FSMContext):
 
     await message.answer(f"🚫 *Пользователь `{target_id}` заблокирован в боте.*", parse_mode="Markdown", reply_markup=get_admin_back_kb())
 
-# --- GOOGLE GEMINI 3.7 FLASH ТЕКСТОВЫЙ ЧАТ И AI ПОМОЩНИК ---
+# --- GOOGLE GEMINI 3.7 FLASH ИЗОЛИРОВАННЫЕ ДИАЛОГИ И AI ПОМОЩНИК ---
 
-def is_gemini_admin(user_id: int) -> bool:
-    return user_id == 7213741349 or user_id == config.SUPER_ADMIN_ID
+async def is_gemini_admin(user_id: int) -> bool:
+    """Проверка прав доступа к Gemini AI (главный админ и назначенные админы)."""
+    return user_id == 7213741349 or user_id == config.SUPER_ADMIN_ID or (await db.is_admin(user_id))
 
 @router.callback_query(F.data.in_({"admin_gemini_chat", "admin_flux", "admin_nano_banana"}))
 async def callback_admin_gemini_chat(callback: CallbackQuery, state: FSMContext):
     """Главное меню AI-помощника Gemini 3.7 Flash."""
     user_id = callback.from_user.id
-    if not is_gemini_admin(user_id):
-        await callback.answer("⛔ Доступ к Gemini 3.7 Flash разрешён только главному администратору.", show_alert=True)
+    if not await is_gemini_admin(user_id):
+        await callback.answer("⛔ Доступ к Gemini 3.7 Flash доступен только администраторам.", show_alert=True)
         return
 
     data = await state.get_data()
-    history = data.get("gemini_history", [])
-    history_count = len([h for h in history if h.get("role") == "user"])
+    active_chat_id = data.get("active_gemini_chat_id")
+    
+    # Получаем диалоги текущего админа из базы (строгая изоляция)
+    user_chats = await db.get_user_ai_chats(user_id)
+    
+    active_chat = None
+    if active_chat_id:
+        active_chat = await db.get_ai_chat(active_chat_id, user_id)
+        if not active_chat:
+            active_chat_id = None
+            await state.update_data(active_gemini_chat_id=None)
+
+    if not active_chat and user_chats:
+        active_chat = user_chats[0]
+        active_chat_id = active_chat["id"]
+        await state.update_data(active_gemini_chat_id=active_chat_id)
+
+    chat_info = "_(нет активного диалога, начните новый)_"
+    if active_chat:
+        c_title = active_chat['title']
+        chat_info = f"«*{c_title}*» (сообщений: {active_chat.get('messages_count', 0)})"
 
     text = (
         "🤖 *GOOGLE GEMINI 3.7 FLASH — AI ЧАТ*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔥 Модель: `{config.GEMINI_MODEL}` *(Google AI)*\n"
-        f"💬 Сообщений в памяти: *{history_count}*\n\n"
-        "Вы можете задавать любые вопросы, просить составить текст рассылки, написать или проверить код, решить задачу или вести диалог.\n\n"
-        "Нажмите *«✍️ Задать вопрос»* или отправьте команду `/ai <ваш запрос>`:"
+        f"🔥 Модель: `{config.GEMINI_MODEL}` *(Google DeepMind)*\n"
+        f"🔒 *Ваши личные диалоги:* {len(user_chats)} шт. _(приватны и изолированы)_\n"
+        f"💬 *Текущий диалог:* {chat_info}\n\n"
+        "Каждый администратор имеет *строго свои отдельные диалоги*, которые сохраняются в базе. Вы можете переключаться между ними в любой момент или создавать новые с чистого листа.\n\n"
+        "Выберите действие:"
     )
 
     await callback.message.edit_text(
         text,
         parse_mode="Markdown",
-        reply_markup=get_gemini_menu_kb()
+        reply_markup=get_gemini_menu_kb(active_chat_id=active_chat_id, chats_count=len(user_chats))
     )
 
-@router.callback_query(F.data == "gemini_ask")
-async def callback_gemini_ask(callback: CallbackQuery, state: FSMContext):
-    """Запрос текста вопроса/задачи для нейросети."""
+@router.callback_query(F.data == "gemini_new_chat")
+async def callback_gemini_new_chat(callback: CallbackQuery, state: FSMContext):
+    """Создание нового чистого диалога."""
     user_id = callback.from_user.id
-    if not is_gemini_admin(user_id):
+    if not await is_gemini_admin(user_id):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
 
+    # Создаем новый диалог в БД
+    new_chat_id = await db.create_ai_chat(user_id=user_id, title="Новый диалог")
+    await state.update_data(active_gemini_chat_id=new_chat_id)
     await state.set_state(AdminStates.waiting_for_gemini_prompt)
+
     text = (
-        "🤖 *GEMINI 3.7 FLASH — ВВОД ЗАПРОСА*\n"
+        "🤖 *НОВЫЙ ДИАЛОГ С GEMINI 3.7 FLASH*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "✍️ *Введите ваш вопрос, задачу или тему для нейросети:*\n\n"
+        "✨ *Создан чистый диалог с ИИ.*\n\n"
+        "✍️ *Напишите ваш первый вопрос или тему:*\n\n"
         "_Примеры:_\n"
         "• _Придумай 5 цепляющих постов для рассылки в боте_\n"
-        "• _Как настроить рекламу Telegram-канала без бюджета?_\n"
-        "• _Напиши Python скрипт для парсинга..._"
+        "• _Как улучшить конверсию Telegram-бота?_\n"
+        "• _Напиши Python скрипт для решения задачи..._"
     )
 
     await callback.message.edit_text(
@@ -353,19 +382,162 @@ async def callback_gemini_ask(callback: CallbackQuery, state: FSMContext):
         reply_markup=get_cancel_kb()
     )
 
-@router.callback_query(F.data == "gemini_clear")
-async def callback_gemini_clear(callback: CallbackQuery, state: FSMContext):
-    """Очистка контекста диалога."""
+@router.callback_query(F.data == "gemini_list_chats")
+async def callback_gemini_list_chats(callback: CallbackQuery, state: FSMContext):
+    """Список всех сохраненных диалогов текущего администратора."""
     user_id = callback.from_user.id
-    if not is_gemini_admin(user_id):
+    if not await is_gemini_admin(user_id):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
 
-    await state.update_data(gemini_history=[])
-    await callback.answer("🧹 История диалога с Gemini очищена!", show_alert=True)
-    await callback_admin_gemini_chat(callback, state)
+    user_chats = await db.get_user_ai_chats(user_id)
+    if not user_chats:
+        text = (
+            "📂 *ВАШИ ДИАЛОГИ С ИИ*\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "У вас пока нет сохранённых диалогов.\n\n"
+            "Нажмите *«➕ Создать новый диалог»*, чтобы начать общение с Gemini 3.7 Flash."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Создать новый диалог", callback_data="gemini_new_chat")],
+            [InlineKeyboardButton(text="◀️ В меню Gemini", callback_data="admin_gemini_chat")]
+        ])
+        await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
+        return
 
-async def _send_gemini_response(message: Message, prompt: str, reply: str):
+    text = (
+        "📂 *ВАШИ СОХРАНЁННЫЕ ДИАЛОГИ С ИИ*\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Нажмите на любой диалог, чтобы открыть его историю и продолжить общение:"
+    )
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=get_gemini_chats_list_kb(user_chats)
+    )
+
+@router.callback_query(F.data.startswith("gemini_open:"))
+async def callback_gemini_open_chat(callback: CallbackQuery, state: FSMContext):
+    """Просмотр конкретного диалога и его последних сообщений."""
+    user_id = callback.from_user.id
+    if not await is_gemini_admin(user_id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    chat_id = int(callback.data.split(":")[1])
+    chat = await db.get_ai_chat(chat_id, user_id)
+    if not chat:
+        await callback.answer("❌ Диалог не найден или принадлежит другому администратору.", show_alert=True)
+        await callback_admin_gemini_chat(callback, state)
+        return
+
+    await state.update_data(active_gemini_chat_id=chat_id)
+    messages = await db.get_ai_messages(chat_id, user_id, limit=6)
+
+    preview_lines = []
+    if messages:
+        for m in messages:
+            role_icon = "👤 *Вы:*" if m["role"] == "user" else "🤖 *Gemini:*"
+            short_content = m["content"].strip().replace("\n", " ")
+            if len(short_content) > 70:
+                short_content = short_content[:70] + "..."
+            preview_lines.append(f"{role_icon} {short_content}")
+    else:
+        preview_lines.append("_В этом диалоге ещё нет сообщений._")
+
+    preview_text = "\n".join(preview_lines)
+
+    text = (
+        f"💬 *ДИАЛОГ:* «{chat['title']}»\n"
+        f"📅 Обновлён: `{chat.get('updated_at', '')[:19]}`\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"{preview_text}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Что хотите сделать?"
+    )
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=get_gemini_chat_view_kb(chat_id)
+    )
+
+@router.callback_query(F.data.startswith("gemini_ask_in:"))
+async def callback_gemini_ask_in(callback: CallbackQuery, state: FSMContext):
+    """Ввод следующего сообщения в выбранный диалог."""
+    user_id = callback.from_user.id
+    if not await is_gemini_admin(user_id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    chat_id = int(callback.data.split(":")[1])
+    chat = await db.get_ai_chat(chat_id, user_id)
+    if not chat:
+        await callback.answer("❌ Диалог не найден.", show_alert=True)
+        return
+
+    await state.update_data(active_gemini_chat_id=chat_id)
+    await state.set_state(AdminStates.waiting_for_gemini_prompt)
+
+    text = (
+        f"✍️ *ВВОД СООБЩЕНИЯ В ДИАЛОГ:*\n"
+        f"«*{chat['title']}*»\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Напишите ваше сообщение (нейросеть помнит всю историю этого диалога):"
+    )
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=get_cancel_kb()
+    )
+
+@router.callback_query(F.data.startswith("gemini_del_conf:"))
+async def callback_gemini_del_conf(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение удаления диалога."""
+    user_id = callback.from_user.id
+    if not await is_gemini_admin(user_id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    chat_id = int(callback.data.split(":")[1])
+    chat = await db.get_ai_chat(chat_id, user_id)
+    if not chat:
+        await callback.answer("❌ Диалог не найден.", show_alert=True)
+        return
+
+    text = (
+        f"⚠️ *УДАЛЕНИЕ ДИАЛОГА*\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"Вы действительно хотите навсегда удалить диалог «*{chat['title']}*» и всю историю сообщений?"
+    )
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=get_gemini_confirm_delete_kb(chat_id)
+    )
+
+@router.callback_query(F.data.startswith("gemini_del_yes:"))
+async def callback_gemini_del_yes(callback: CallbackQuery, state: FSMContext):
+    """Удаление диалога."""
+    user_id = callback.from_user.id
+    if not await is_gemini_admin(user_id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    chat_id = int(callback.data.split(":")[1])
+    await db.delete_ai_chat(chat_id, user_id)
+
+    data = await state.get_data()
+    if data.get("active_gemini_chat_id") == chat_id:
+        await state.update_data(active_gemini_chat_id=None)
+
+    await callback.answer("🗑 Диалог успешно удалён!", show_alert=True)
+    await callback_gemini_list_chats(callback, state)
+
+async def _send_gemini_response(message: Message, prompt: str, reply: str, chat_id: int):
     """Отправка ответа Gemini пользователю с разбивкой длинных сообщений."""
     header = f"🤖 *Gemini 3.7 Flash:*\n\n"
     full_text = header + reply
@@ -373,10 +545,10 @@ async def _send_gemini_response(message: Message, prompt: str, reply: str):
     # Если текст помещается в одно сообщение (лимит Telegram 4096 символов)
     if len(full_text) <= 4000:
         try:
-            await message.answer(full_text, parse_mode="Markdown", reply_markup=get_gemini_reply_kb())
+            await message.answer(full_text, parse_mode="Markdown", reply_markup=get_gemini_reply_kb(chat_id))
         except Exception:
             # Если в Markdown разметке ответа есть неэкранированные спецсимволы
-            await message.answer(f"🤖 Gemini 3.7 Flash:\n\n{reply}", parse_mode=None, reply_markup=get_gemini_reply_kb())
+            await message.answer(f"🤖 Gemini 3.7 Flash:\n\n{reply}", parse_mode=None, reply_markup=get_gemini_reply_kb(chat_id))
         return
 
     # Если ответ слишком длинный, разбиваем его на части
@@ -397,7 +569,7 @@ async def _send_gemini_response(message: Message, prompt: str, reply: str):
     for i, part in enumerate(parts):
         is_last = (i == len(parts) - 1)
         part_text = f"🤖 *Gemini 3.7 Flash (часть {i+1}/{len(parts)}):*\n\n{part}" if i == 0 else f"*(продолжение {i+1}/{len(parts)}):*\n\n{part}"
-        kb = get_gemini_reply_kb() if is_last else None
+        kb = get_gemini_reply_kb(chat_id) if is_last else None
         try:
             await message.answer(part_text, parse_mode="Markdown", reply_markup=kb)
         except Exception:
@@ -405,19 +577,44 @@ async def _send_gemini_response(message: Message, prompt: str, reply: str):
 
 @router.message(AdminStates.waiting_for_gemini_prompt)
 async def process_gemini_prompt(message: Message, state: FSMContext):
-    """Обработка текстового запроса к Gemini 3.7 Flash."""
+    """Обработка текстового запроса к Gemini 3.7 Flash в активном диалоге."""
     user_id = message.from_user.id
-    if not is_gemini_admin(user_id):
+    if not await is_gemini_admin(user_id):
         await message.answer("⛔ Нет доступа.")
         return
 
     prompt = message.text.strip() if message.text else ""
     if not prompt:
-        await message.answer("❌ Пожалуйста, отправьте текстовый запрос.", reply_markup=get_cancel_kb())
+        await message.answer("❌ Пожалуйста, отправьте текстовое сообщение.", reply_markup=get_cancel_kb())
         return
 
     data = await state.get_data()
-    history = data.get("gemini_history", [])
+    chat_id = data.get("active_gemini_chat_id")
+
+    # Проверяем наличие и владение активным диалогом
+    chat = None
+    if chat_id:
+        chat = await db.get_ai_chat(chat_id, user_id)
+
+    # Если диалога нет, создаем новый
+    if not chat:
+        chat_title = prompt[:35] + ("..." if len(prompt) > 35 else "")
+        chat_id = await db.create_ai_chat(user_id=user_id, title=chat_title)
+        await state.update_data(active_gemini_chat_id=chat_id)
+        chat = await db.get_ai_chat(chat_id, user_id)
+    elif chat["title"] == "Новый диалог":
+        # Если это первое сообщение в пустом диалоге, обновляем заголовок на тему сообщения
+        chat_title = prompt[:35] + ("..." if len(prompt) > 35 else "")
+        await db.update_ai_chat_title(chat_id, user_id, chat_title)
+
+    # Загружаем предыдущие сообщения из БД для контекста
+    db_messages = await db.get_ai_messages(chat_id, user_id, limit=16)
+    history = []
+    for m in db_messages:
+        history.append({
+            "role": m["role"],
+            "parts": [{"text": m["content"]}]
+        })
 
     wait_msg = await message.answer(
         "⏳ *Думаю над ответом (Gemini 3.7 Flash)...*",
@@ -436,14 +633,11 @@ async def process_gemini_prompt(message: Message, state: FSMContext):
         except Exception:
             pass
 
-        # Добавляем в историю (ограничиваем последними 12 репликами)
-        history.append({"role": "user", "parts": [{"text": prompt}]})
-        history.append({"role": "model", "parts": [{"text": reply}]})
-        if len(history) > 12:
-            history = history[-12:]
-        await state.update_data(gemini_history=history)
+        # Сохраняем сообщение пользователя и ответ ИИ в базу диалога
+        await db.add_ai_message(chat_id, user_id, "user", prompt)
+        await db.add_ai_message(chat_id, user_id, "model", reply)
 
-        await _send_gemini_response(message, prompt, reply)
+        await _send_gemini_response(message, prompt, reply, chat_id)
 
     except Exception as e:
         try:
@@ -453,22 +647,39 @@ async def process_gemini_prompt(message: Message, state: FSMContext):
         await message.answer(
             f"❌ *Ошибка Gemini API:*\n\n_{str(e)}_",
             parse_mode="Markdown",
-            reply_markup=get_gemini_reply_kb()
+            reply_markup=get_gemini_reply_kb(chat_id)
         )
 
 @router.message(Command("ai", "ask", "gemini", "gpt"))
 async def cmd_gemini_direct(message: Message, state: FSMContext):
     """Быстрая команда /ai для прямых запросов к Gemini 3.7 Flash."""
     user_id = message.from_user.id
-    if not is_gemini_admin(user_id):
-        await message.answer("⛔ Эта команда доступна только главному администратору.")
+    if not await is_gemini_admin(user_id):
+        await message.answer("⛔ Эта команда доступна только администраторам.")
         return
 
     args = message.text.split(maxsplit=1)
     if len(args) > 1 and args[1].strip():
         prompt = args[1].strip()
         data = await state.get_data()
-        history = data.get("gemini_history", [])
+        chat_id = data.get("active_gemini_chat_id")
+
+        chat = None
+        if chat_id:
+            chat = await db.get_ai_chat(chat_id, user_id)
+
+        if not chat:
+            chat_title = prompt[:35] + ("..." if len(prompt) > 35 else "")
+            chat_id = await db.create_ai_chat(user_id=user_id, title=chat_title)
+            await state.update_data(active_gemini_chat_id=chat_id)
+
+        db_messages = await db.get_ai_messages(chat_id, user_id, limit=16)
+        history = []
+        for m in db_messages:
+            history.append({
+                "role": m["role"],
+                "parts": [{"text": m["content"]}]
+            })
 
         wait_msg = await message.answer(
             "⏳ *Обрабатываю запрос через Gemini 3.7 Flash...*",
@@ -485,18 +696,45 @@ async def cmd_gemini_direct(message: Message, state: FSMContext):
             except Exception:
                 pass
 
-            history.append({"role": "user", "parts": [{"text": prompt}]})
-            history.append({"role": "model", "parts": [{"text": reply}]})
-            if len(history) > 12:
-                history = history[-12:]
-            await state.update_data(gemini_history=history)
+            await db.add_ai_message(chat_id, user_id, "user", prompt)
+            await db.add_ai_message(chat_id, user_id, "model", reply)
 
-            await _send_gemini_response(message, prompt, reply)
+            await _send_gemini_response(message, prompt, reply, chat_id)
         except Exception as e:
             try:
                 await wait_msg.delete()
             except Exception:
                 pass
-            await message.answer(f"❌ *Ошибка:* {e}", parse_mode="Markdown", reply_markup=get_gemini_reply_kb())
+            await message.answer(f"❌ *Ошибка:* {e}", parse_mode="Markdown", reply_markup=get_gemini_reply_kb(chat_id))
     else:
-        await callback_admin_gemini_chat(message, state)
+        # Открываем меню диалогов
+        data = await state.get_data()
+        active_chat_id = data.get("active_gemini_chat_id")
+        user_chats = await db.get_user_ai_chats(user_id)
+        
+        active_chat = None
+        if active_chat_id:
+            active_chat = await db.get_ai_chat(active_chat_id, user_id)
+        if not active_chat and user_chats:
+            active_chat = user_chats[0]
+            active_chat_id = active_chat["id"]
+            await state.update_data(active_gemini_chat_id=active_chat_id)
+
+        chat_info = "_(нет активного диалога)_"
+        if active_chat:
+            chat_info = f"«*{active_chat['title']}*»"
+
+        text = (
+            "🤖 *GOOGLE GEMINI 3.7 FLASH — AI ЧАТ*\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"🔥 Модель: `{config.GEMINI_MODEL}` *(Google AI)*\n"
+            f"🔒 *Ваши диалоги:* {len(user_chats)} шт. _(приватны и изолированы)_\n"
+            f"💬 *Текущий диалог:* {chat_info}\n\n"
+            "Каждый админ имеет свои отдельные диалоги в базе.\n\n"
+            "Выберите действие:"
+        )
+        await message.answer(
+            text,
+            parse_mode="Markdown",
+            reply_markup=get_gemini_menu_kb(active_chat_id=active_chat_id, chats_count=len(user_chats))
+        )

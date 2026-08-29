@@ -1,3 +1,4 @@
+from typing import List, Optional
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from urllib.parse import quote
 
@@ -62,28 +63,92 @@ def get_admin_main_kb(is_super_admin: bool = False) -> InlineKeyboardMarkup:
         ])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_gemini_menu_kb() -> InlineKeyboardMarkup:
-    """Меню чата с Gemini 3.7 Flash."""
+def get_gemini_menu_kb(active_chat_id: Optional[int] = None, chats_count: int = 0) -> InlineKeyboardMarkup:
+    """Главное меню AI-помощника Gemini 3.7 Flash."""
+    keyboard = []
+    if active_chat_id:
+        keyboard.append([
+            InlineKeyboardButton(text="✍️ Продолжить текущий диалог", callback_data=f"gemini_ask_in:{active_chat_id}")
+        ])
+    else:
+        keyboard.append([
+            InlineKeyboardButton(text="✍️ Начать диалог с ИИ", callback_data="gemini_new_chat")
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(text="➕ Новый диалог с чистого листа", callback_data="gemini_new_chat")
+    ])
+
+    if chats_count > 0:
+        keyboard.append([
+            InlineKeyboardButton(text=f"📂 Мои сохранённые диалоги ({chats_count})", callback_data="gemini_list_chats")
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(text="◀️ В админ-панель", callback_data="admin_main")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_gemini_chats_list_kb(chats: List[dict]) -> InlineKeyboardMarkup:
+    """Список сохраненных диалогов администратора."""
+    keyboard = []
+    for c in chats[:15]:
+        chat_id = c["id"]
+        title = c["title"]
+        if len(title) > 28:
+            title = title[:28] + "..."
+        msg_count = c.get("messages_count", 0)
+        keyboard.append([
+            InlineKeyboardButton(
+                text=f"💬 {title} ({msg_count})",
+                callback_data=f"gemini_open:{chat_id}"
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(text="➕ Создать новый диалог", callback_data="gemini_new_chat")
+    ])
+    keyboard.append([
+        InlineKeyboardButton(text="◀️ Назад в меню Gemini", callback_data="admin_gemini_chat")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_gemini_chat_view_kb(chat_id: int) -> InlineKeyboardMarkup:
+    """Меню открытого диалога."""
     keyboard = [
         [
-            InlineKeyboardButton(text="✍️ Задать вопрос / Написать запрос", callback_data="gemini_ask")
+            InlineKeyboardButton(text="✍️ Написать в этот диалог", callback_data=f"gemini_ask_in:{chat_id}")
         ],
         [
-            InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="gemini_clear"),
+            InlineKeyboardButton(text="🗑 Удалить диалог", callback_data=f"gemini_del_conf:{chat_id}"),
+            InlineKeyboardButton(text="📂 Все диалоги", callback_data="gemini_list_chats")
+        ],
+        [
+            InlineKeyboardButton(text="◀️ В меню Gemini", callback_data="admin_gemini_chat")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_gemini_reply_kb(chat_id: int) -> InlineKeyboardMarkup:
+    """Кнопки под ответом Gemini в конкретном диалоге."""
+    keyboard = [
+        [
+            InlineKeyboardButton(text="✍️ Ответить дальше", callback_data=f"gemini_ask_in:{chat_id}"),
+            InlineKeyboardButton(text="➕ Новый диалог", callback_data="gemini_new_chat")
+        ],
+        [
+            InlineKeyboardButton(text="📂 Мои диалоги", callback_data="gemini_list_chats"),
             InlineKeyboardButton(text="◀️ В админ-панель", callback_data="admin_main")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_gemini_reply_kb() -> InlineKeyboardMarkup:
-    """Кнопки под ответом Gemini."""
+def get_gemini_confirm_delete_kb(chat_id: int) -> InlineKeyboardMarkup:
+    """Подтверждение удаления диалога."""
     keyboard = [
         [
-            InlineKeyboardButton(text="✍️ Продолжить диалог", callback_data="gemini_ask"),
-            InlineKeyboardButton(text="🧹 Очистить диалог", callback_data="gemini_clear")
-        ],
-        [
-            InlineKeyboardButton(text="◀️ Назад в админ-панель", callback_data="admin_main")
+            InlineKeyboardButton(text="🗑 Да, удалить диалог", callback_data=f"gemini_del_yes:{chat_id}"),
+            InlineKeyboardButton(text="◀️ Отмена", callback_data=f"gemini_open:{chat_id}")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
