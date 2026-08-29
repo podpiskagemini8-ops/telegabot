@@ -37,6 +37,7 @@ async def set_bot_commands(bot: Bot):
     commands = [
         BotCommand(command="start", description="🚀 Главное меню / Получить ссылку"),
         BotCommand(command="admin", description="⚡ Панель администратора"),
+        BotCommand(command="ai", description="🤖 Чат с Gemini 3.7 Flash"),
         BotCommand(command="id", description="🆔 Узнать свой Telegram ID"),
     ]
     try:

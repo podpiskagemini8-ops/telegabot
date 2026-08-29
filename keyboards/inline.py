@@ -55,53 +55,38 @@ def get_admin_main_kb(is_super_admin: bool = False) -> InlineKeyboardMarkup:
     ]
     if is_super_admin:
         keyboard.insert(0, [
-            InlineKeyboardButton(text="⚡ FLUX (Генерация картинок)", callback_data="admin_flux")
+            InlineKeyboardButton(text="🤖 Чат с Gemini 3.7 Flash", callback_data="admin_gemini_chat")
         ])
         keyboard.insert(2, [
             InlineKeyboardButton(text="📢 Рассылка всем", callback_data="admin_broadcast")
         ])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_flux_menu_kb(selected_count: int = 1) -> InlineKeyboardMarkup:
-    """Меню генерации FLUX с выбором количества (1-4)."""
-    count_buttons = []
-    for count in [1, 2, 3, 4]:
-        check = "✅ " if count == selected_count else ""
-        count_buttons.append(
-            InlineKeyboardButton(
-                text=f"{check}{count} 🖼",
-                callback_data=f"flux_count:{count}"
-            )
-        )
+def get_gemini_menu_kb() -> InlineKeyboardMarkup:
+    """Меню чата с Gemini 3.7 Flash."""
     keyboard = [
-        count_buttons,
         [
-            InlineKeyboardButton(text="✍️ Ввести запрос (промпт)", callback_data=f"flux_enter_prompt:{selected_count}")
+            InlineKeyboardButton(text="✍️ Задать вопрос / Написать запрос", callback_data="gemini_ask")
+        ],
+        [
+            InlineKeyboardButton(text="🧹 Очистить контекст", callback_data="gemini_clear"),
+            InlineKeyboardButton(text="◀️ В админ-панель", callback_data="admin_main")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_gemini_reply_kb() -> InlineKeyboardMarkup:
+    """Кнопки под ответом Gemini."""
+    keyboard = [
+        [
+            InlineKeyboardButton(text="✍️ Продолжить диалог", callback_data="gemini_ask"),
+            InlineKeyboardButton(text="🧹 Очистить диалог", callback_data="gemini_clear")
         ],
         [
             InlineKeyboardButton(text="◀️ Назад в админ-панель", callback_data="admin_main")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-# Алиас для совместимости
-get_nano_banana_menu_kb = get_flux_menu_kb
-
-def get_flux_result_kb() -> InlineKeyboardMarkup:
-    """Кнопки под сгенерированным изображением."""
-    keyboard = [
-        [
-            InlineKeyboardButton(text="🔄 Повторить генерацию", callback_data="flux_retry"),
-            InlineKeyboardButton(text="⚡ Новый запрос", callback_data="admin_flux")
-        ],
-        [
-            InlineKeyboardButton(text="◀️ Назад в админ-панель", callback_data="admin_main")
-        ]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-# Алиас для совместимости
-get_banana_result_kb = get_flux_result_kb
 
 def get_admin_back_kb() -> InlineKeyboardMarkup:
     """Кнопка возврата в главное меню админки."""

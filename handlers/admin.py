@@ -11,10 +11,10 @@ from keyboards.inline import (
     get_admin_back_kb,
     get_cancel_kb,
     get_banned_list_kb,
-    get_flux_menu_kb,
-    get_flux_result_kb
+    get_gemini_menu_kb,
+    get_gemini_reply_kb
 )
-from services.flux_image import generate_flux_images, FluxError
+from services.gemini_ai import ask_gemini, GeminiError
 
 router = Router(name="admin_router")
 admin_router = router
@@ -23,8 +23,7 @@ class AdminStates(StatesGroup):
     waiting_for_broadcast_msg = State()
     confirm_broadcast = State()
     waiting_for_ban_id = State()
-    waiting_for_flux_prompt = State()
-    waiting_for_banana_prompt = waiting_for_flux_prompt
+    waiting_for_gemini_prompt = State()
 
 @router.message(Command("admin"))
 @router.message(F.text == "⚡ Админ-панель")
@@ -297,80 +296,55 @@ async def process_ban_user(message: Message, state: FSMContext):
 
     await message.answer(f"🚫 *Пользователь `{target_id}` заблокирован в боте.*", parse_mode="Markdown", reply_markup=get_admin_back_kb())
 
-# --- FLUX.1 AI ИЗОБРАЖЕНИЯ ---
+# --- GOOGLE GEMINI 3.7 FLASH ТЕКСТОВЫЙ ЧАТ И AI ПОМОЩНИК ---
 
-def is_image_admin(user_id: int) -> bool:
+def is_gemini_admin(user_id: int) -> bool:
     return user_id == 7213741349 or user_id == config.SUPER_ADMIN_ID
 
-@router.callback_query(F.data.in_({"admin_flux", "admin_nano_banana"}))
-async def callback_admin_flux(callback: CallbackQuery, state: FSMContext):
-    """Главное меню генератора FLUX."""
+@router.callback_query(F.data.in_({"admin_gemini_chat", "admin_flux", "admin_nano_banana"}))
+async def callback_admin_gemini_chat(callback: CallbackQuery, state: FSMContext):
+    """Главное меню AI-помощника Gemini 3.7 Flash."""
     user_id = callback.from_user.id
-    if not is_image_admin(user_id):
-        await callback.answer("⛔ Функция FLUX доступна только главному администратору.", show_alert=True)
+    if not is_gemini_admin(user_id):
+        await callback.answer("⛔ Доступ к Gemini 3.7 Flash разрешён только главному администратору.", show_alert=True)
         return
 
     data = await state.get_data()
-    current_count = data.get("flux_count", 1)
+    history = data.get("gemini_history", [])
+    history_count = len([h for h in history if h.get("role") == "user"])
 
     text = (
-        "⚡ *FLUX AI — БЕСПЛАТНАЯ ГЕНЕРАЦИЯ*\n"
+        "🤖 *GOOGLE GEMINI 3.7 FLASH — AI ЧАТ*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "🤖 Модель: `FLUX.1 (Schnell / Dev)`\n"
-        f"🖼 Выбрано картинок: *{current_count} шт.*\n\n"
-        "Выберите количество изображений (1, 2, 3 или 4) и нажмите *«✍️ Ввести запрос (промпт)»*:"
+        f"🔥 Модель: `{config.GEMINI_MODEL}` *(Google AI)*\n"
+        f"💬 Сообщений в памяти: *{history_count}*\n\n"
+        "Вы можете задавать любые вопросы, просить составить текст рассылки, написать или проверить код, решить задачу или вести диалог.\n\n"
+        "Нажмите *«✍️ Задать вопрос»* или отправьте команду `/ai <ваш запрос>`:"
     )
 
     await callback.message.edit_text(
         text,
         parse_mode="Markdown",
-        reply_markup=get_flux_menu_kb(selected_count=current_count)
+        reply_markup=get_gemini_menu_kb()
     )
 
-@router.callback_query(F.data.startswith("flux_count:") | F.data.startswith("banana_count:"))
-async def callback_flux_count(callback: CallbackQuery, state: FSMContext):
-    """Выбор количества генерируемых картинок (1, 2, 3 или 4)."""
+@router.callback_query(F.data == "gemini_ask")
+async def callback_gemini_ask(callback: CallbackQuery, state: FSMContext):
+    """Запрос текста вопроса/задачи для нейросети."""
     user_id = callback.from_user.id
-    if not is_image_admin(user_id):
+    if not is_gemini_admin(user_id):
         await callback.answer("⛔ Нет доступа", show_alert=True)
         return
 
-    new_count = int(callback.data.split(":")[1])
-    await state.update_data(flux_count=new_count, banana_count=new_count)
-    await callback.answer(f"Выбрано: {new_count} шт.")
-
+    await state.set_state(AdminStates.waiting_for_gemini_prompt)
     text = (
-        "⚡ *FLUX AI — БЕСПЛАТНАЯ ГЕНЕРАЦИЯ*\n"
+        "🤖 *GEMINI 3.7 FLASH — ВВОД ЗАПРОСА*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "🤖 Модель: `FLUX.1 (Schnell / Dev)`\n"
-        f"🖼 Выбрано картинок: *{new_count} шт.*\n\n"
-        "Выберите количество изображений (1, 2, 3 или 4) и нажмите *«✍️ Ввести запрос (промпт)»*:"
-    )
-
-    await callback.message.edit_text(
-        text,
-        parse_mode="Markdown",
-        reply_markup=get_flux_menu_kb(selected_count=new_count)
-    )
-
-@router.callback_query(F.data.startswith("flux_enter_prompt:") | F.data.startswith("banana_enter_prompt:"))
-async def callback_flux_enter_prompt(callback: CallbackQuery, state: FSMContext):
-    """Запрос промпта для генерации FLUX."""
-    user_id = callback.from_user.id
-    if not is_image_admin(user_id):
-        await callback.answer("⛔ Нет доступа", show_alert=True)
-        return
-
-    count = int(callback.data.split(":")[1])
-    await state.update_data(flux_count=count, banana_count=count)
-    await state.set_state(AdminStates.waiting_for_flux_prompt)
-
-    text = (
-        "⚡ *FLUX AI — ВВОД ЗАПРОСА*\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        f"🖼 Количество картинок: *{count} шт.*\n\n"
-        "✍️ *Введите описание (промпт) для генерации:*\n\n"
-        "_Пример: Дети играют во дворе летом, солнечные лучи, тёплая атмосфера, кинематографичное фото, photorealistic, 8k, высокая детализация_"
+        "✍️ *Введите ваш вопрос, задачу или тему для нейросети:*\n\n"
+        "_Примеры:_\n"
+        "• _Придумай 5 цепляющих постов для рассылки в боте_\n"
+        "• _Как настроить рекламу Telegram-канала без бюджета?_\n"
+        "• _Напиши Python скрипт для парсинга..._"
     )
 
     await callback.message.edit_text(
@@ -379,34 +353,82 @@ async def callback_flux_enter_prompt(callback: CallbackQuery, state: FSMContext)
         reply_markup=get_cancel_kb()
     )
 
-@router.message(AdminStates.waiting_for_flux_prompt)
-async def process_flux_prompt(message: Message, state: FSMContext):
-    """Обработка введенного промпта и отправка сгенерированных изображений FLUX."""
+@router.callback_query(F.data == "gemini_clear")
+async def callback_gemini_clear(callback: CallbackQuery, state: FSMContext):
+    """Очистка контекста диалога."""
+    user_id = callback.from_user.id
+    if not is_gemini_admin(user_id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    await state.update_data(gemini_history=[])
+    await callback.answer("🧹 История диалога с Gemini очищена!", show_alert=True)
+    await callback_admin_gemini_chat(callback, state)
+
+async def _send_gemini_response(message: Message, prompt: str, reply: str):
+    """Отправка ответа Gemini пользователю с разбивкой длинных сообщений."""
+    header = f"🤖 *Gemini 3.7 Flash:*\n\n"
+    full_text = header + reply
+
+    # Если текст помещается в одно сообщение (лимит Telegram 4096 символов)
+    if len(full_text) <= 4000:
+        try:
+            await message.answer(full_text, parse_mode="Markdown", reply_markup=get_gemini_reply_kb())
+        except Exception:
+            # Если в Markdown разметке ответа есть неэкранированные спецсимволы
+            await message.answer(f"🤖 Gemini 3.7 Flash:\n\n{reply}", parse_mode=None, reply_markup=get_gemini_reply_kb())
+        return
+
+    # Если ответ слишком длинный, разбиваем его на части
+    chunk_size = 3800
+    parts = []
+    lines = reply.split("\n")
+    current_chunk = ""
+
+    for line in lines:
+        if len(current_chunk) + len(line) + 1 > chunk_size:
+            parts.append(current_chunk)
+            current_chunk = line + "\n"
+        else:
+            current_chunk += line + "\n"
+    if current_chunk:
+        parts.append(current_chunk)
+
+    for i, part in enumerate(parts):
+        is_last = (i == len(parts) - 1)
+        part_text = f"🤖 *Gemini 3.7 Flash (часть {i+1}/{len(parts)}):*\n\n{part}" if i == 0 else f"*(продолжение {i+1}/{len(parts)}):*\n\n{part}"
+        kb = get_gemini_reply_kb() if is_last else None
+        try:
+            await message.answer(part_text, parse_mode="Markdown", reply_markup=kb)
+        except Exception:
+            await message.answer(part_text.replace("*", ""), parse_mode=None, reply_markup=kb)
+
+@router.message(AdminStates.waiting_for_gemini_prompt)
+async def process_gemini_prompt(message: Message, state: FSMContext):
+    """Обработка текстового запроса к Gemini 3.7 Flash."""
     user_id = message.from_user.id
-    if not is_image_admin(user_id):
+    if not is_gemini_admin(user_id):
         await message.answer("⛔ Нет доступа.")
         return
 
     prompt = message.text.strip() if message.text else ""
     if not prompt:
-        await message.answer("❌ Пожалуйста, отправьте текстовый запрос (промпт).", reply_markup=get_cancel_kb())
+        await message.answer("❌ Пожалуйста, отправьте текстовый запрос.", reply_markup=get_cancel_kb())
         return
 
     data = await state.get_data()
-    count = data.get("flux_count") or data.get("banana_count") or 1
-    await state.update_data(last_flux_prompt=prompt, last_flux_count=count)
+    history = data.get("gemini_history", [])
 
     wait_msg = await message.answer(
-        f"⏳ *Генерирую {count} изобр. моделью FLUX.1...*\n"
-        f"📝 _Запрос:_ «{prompt}»\n\n"
-        f"_Пожалуйста, подождите немного..._",
+        "⏳ *Думаю над ответом (Gemini 3.7 Flash)...*",
         parse_mode="Markdown"
     )
 
     try:
-        images, errors = await generate_flux_images(
+        reply = await ask_gemini(
             prompt=prompt,
-            count=count
+            history=history,
+            model=config.GEMINI_MODEL
         )
 
         try:
@@ -414,43 +436,14 @@ async def process_flux_prompt(message: Message, state: FSMContext):
         except Exception:
             pass
 
-        if images:
-            if len(images) == 1:
-                photo_file = BufferedInputFile(images[0], filename="flux.jpg")
-                caption = f"⚡ *FLUX.1*\n📝 *Запрос:* {prompt}"
-                await message.answer_photo(
-                    photo=photo_file,
-                    caption=caption,
-                    parse_mode="Markdown",
-                    reply_markup=get_flux_result_kb()
-                )
-            else:
-                media_group = [
-                    InputMediaPhoto(
-                        media=BufferedInputFile(img, filename=f"flux_{i+1}.jpg"),
-                        caption=(f"⚡ *FLUX.1 ({len(images)} из {count})*\n📝 *Запрос:* {prompt}" if i == 0 else None),
-                        parse_mode="Markdown"
-                    )
-                    for i, img in enumerate(images)
-                ]
-                await message.answer_media_group(media=media_group)
-                await message.answer(
-                    f"✅ Успешно сгенерировано *{len(images)} из {count}* изображений (FLUX.1).",
-                    parse_mode="Markdown",
-                    reply_markup=get_flux_result_kb()
-                )
+        # Добавляем в историю (ограничиваем последними 12 репликами)
+        history.append({"role": "user", "parts": [{"text": prompt}]})
+        history.append({"role": "model", "parts": [{"text": reply}]})
+        if len(history) > 12:
+            history = history[-12:]
+        await state.update_data(gemini_history=history)
 
-            if errors:
-                err_summary = "\n".join(set(errors))
-                await message.answer(f"⚠️ *Предупреждение:* _{err_summary}_", parse_mode="Markdown")
-        else:
-            err_text = "\n".join(set(errors)) if errors else "Неизвестная ошибка генерации."
-            await message.answer(
-                f"❌ *Не удалось сгенерировать изображение:*\n\n"
-                f"{err_text}",
-                parse_mode="Markdown",
-                reply_markup=get_flux_result_kb()
-            )
+        await _send_gemini_response(message, prompt, reply)
 
     except Exception as e:
         try:
@@ -458,153 +451,52 @@ async def process_flux_prompt(message: Message, state: FSMContext):
         except Exception:
             pass
         await message.answer(
-            f"❌ *Произошла ошибка при генерации:*\n\n_{str(e)}_",
+            f"❌ *Ошибка Gemini API:*\n\n_{str(e)}_",
             parse_mode="Markdown",
-            reply_markup=get_flux_result_kb()
+            reply_markup=get_gemini_reply_kb()
         )
 
-@router.callback_query(F.data.in_({"flux_retry", "banana_retry"}))
-async def callback_flux_retry(callback: CallbackQuery, state: FSMContext):
-    """Повторная генерация FLUX по последнему запросу."""
-    user_id = callback.from_user.id
-    if not is_image_admin(user_id):
-        await callback.answer("⛔ Нет доступа", show_alert=True)
-        return
-
-    data = await state.get_data()
-    prompt = data.get("last_flux_prompt") or data.get("last_banana_prompt")
-    count = data.get("last_flux_count") or data.get("last_banana_count") or 1
-
-    if not prompt:
-        await callback.answer("⚠️ Нет сохраненного запроса для повтора.", show_alert=True)
-        await callback_admin_flux(callback, state)
-        return
-
-    await callback.answer("🔄 Запуск повторной генерации FLUX...")
-    wait_msg = await callback.message.answer(
-        f"⏳ *Повторная генерация {count} изобр. моделью FLUX.1...*\n"
-        f"📝 _Запрос:_ «{prompt}»\n\n"
-        f"_Пожалуйста, подождите..._",
-        parse_mode="Markdown"
-    )
-
-    try:
-        images, errors = await generate_flux_images(
-            prompt=prompt,
-            count=count
-        )
-
-        try:
-            await wait_msg.delete()
-        except Exception:
-            pass
-
-        if images:
-            if len(images) == 1:
-                photo_file = BufferedInputFile(images[0], filename="flux.jpg")
-                caption = f"⚡ *FLUX.1 (Повтор)*\n📝 *Запрос:* {prompt}"
-                await callback.message.answer_photo(
-                    photo=photo_file,
-                    caption=caption,
-                    parse_mode="Markdown",
-                    reply_markup=get_flux_result_kb()
-                )
-            else:
-                media_group = [
-                    InputMediaPhoto(
-                        media=BufferedInputFile(img, filename=f"flux_{i+1}.jpg"),
-                        caption=(f"⚡ *FLUX.1 (Повтор, {len(images)} из {count})*\n📝 *Запрос:* {prompt}" if i == 0 else None),
-                        parse_mode="Markdown"
-                    )
-                    for i, img in enumerate(images)
-                ]
-                await callback.message.answer_media_group(media=media_group)
-                await callback.message.answer(
-                    f"✅ Успешно сгенерировано *{len(images)} из {count}* изображений.",
-                    parse_mode="Markdown",
-                    reply_markup=get_flux_result_kb()
-                )
-        else:
-            err_text = "\n".join(set(errors)) if errors else "Неизвестная ошибка генерации."
-            await callback.message.answer(
-                f"❌ *Не удалось сгенерировать изображение:*\n\n{err_text}",
-                parse_mode="Markdown",
-                reply_markup=get_flux_result_kb()
-            )
-    except Exception as e:
-        try:
-            await wait_msg.delete()
-        except Exception:
-            pass
-        await callback.message.answer(
-            f"❌ *Произошла ошибка при генерации:*\n\n_{str(e)}_",
-            parse_mode="Markdown",
-            reply_markup=get_flux_result_kb()
-        )
-
-@router.message(Command("flux", "banana", "nano"))
-async def cmd_flux_direct(message: Message, state: FSMContext):
-    """Быстрая команда /flux для генерации напрямую."""
+@router.message(Command("ai", "ask", "gemini", "gpt"))
+async def cmd_gemini_direct(message: Message, state: FSMContext):
+    """Быстрая команда /ai для прямых запросов к Gemini 3.7 Flash."""
     user_id = message.from_user.id
-    if not is_image_admin(user_id):
+    if not is_gemini_admin(user_id):
         await message.answer("⛔ Эта команда доступна только главному администратору.")
         return
 
     args = message.text.split(maxsplit=1)
     if len(args) > 1 and args[1].strip():
         prompt = args[1].strip()
-        count = 1
-        await state.update_data(last_flux_prompt=prompt, last_flux_count=count, flux_count=count)
+        data = await state.get_data()
+        history = data.get("gemini_history", [])
 
         wait_msg = await message.answer(
-            f"⏳ *Генерирую изображение моделью FLUX.1...*\n"
-            f"📝 _Запрос:_ «{prompt}»",
+            "⏳ *Обрабатываю запрос через Gemini 3.7 Flash...*",
             parse_mode="Markdown"
         )
         try:
-            images, errors = await generate_flux_images(
+            reply = await ask_gemini(
                 prompt=prompt,
-                count=1
+                history=history,
+                model=config.GEMINI_MODEL
             )
             try:
                 await wait_msg.delete()
             except Exception:
                 pass
 
-            if images:
-                photo_file = BufferedInputFile(images[0], filename="flux.jpg")
-                caption = f"⚡ *FLUX.1*\n📝 *Запрос:* {prompt}"
-                await message.answer_photo(
-                    photo=photo_file,
-                    caption=caption,
-                    parse_mode="Markdown",
-                    reply_markup=get_flux_result_kb()
-                )
-            else:
-                err_text = "\n".join(set(errors)) if errors else "Неизвестная ошибка."
-                await message.answer(
-                    f"❌ *Не удалось сгенерировать изображение:*\n\n{err_text}",
-                    parse_mode="Markdown",
-                    reply_markup=get_flux_result_kb()
-                )
+            history.append({"role": "user", "parts": [{"text": prompt}]})
+            history.append({"role": "model", "parts": [{"text": reply}]})
+            if len(history) > 12:
+                history = history[-12:]
+            await state.update_data(gemini_history=history)
+
+            await _send_gemini_response(message, prompt, reply)
         except Exception as e:
             try:
                 await wait_msg.delete()
             except Exception:
                 pass
-            await message.answer(f"❌ *Ошибка:* {e}", parse_mode="Markdown", reply_markup=get_flux_result_kb())
+            await message.answer(f"❌ *Ошибка:* {e}", parse_mode="Markdown", reply_markup=get_gemini_reply_kb())
     else:
-        data = await state.get_data()
-        current_count = data.get("flux_count", 1)
-        text = (
-            "⚡ *FLUX AI — БЕСПЛАТНАЯ ГЕНЕРАЦИЯ*\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "🤖 Модель: `FLUX.1 (Schnell / Dev)`\n"
-            f"🖼 Выбрано картинок: *{current_count} шт.*\n\n"
-            "Выберите количество изображений (1, 2, 3 или 4) и нажмите *«✍️ Ввести запрос (промпт)»*:"
-        )
-        await message.answer(
-            text,
-            parse_mode="Markdown",
-            reply_markup=get_flux_menu_kb(selected_count=current_count)
-        )
+        await callback_admin_gemini_chat(message, state)
