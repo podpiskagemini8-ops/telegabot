@@ -21,8 +21,8 @@ async def ask_gemini(
     system_instruction: Optional[str] = None
 ) -> str:
     """
-    Отправка текстового запроса или ведение диалога с Google Gemini (gemini-3.7-flash).
-    Автоматически делает повторные попытки при временной нагрузке (503) и фолбэк на flash-latest.
+    Отправка текстового запроса или ведение диалога с Google Gemini (gemini-3.7-flash / gemini-3.5-flash).
+    Автоматически делает повторные попытки при временной нагрузке и переключается между быстрыми моделями.
     
     :param prompt: Текстовый запрос пользователя.
     :param history: Предыдущая история диалога.
@@ -36,10 +36,12 @@ async def ask_gemini(
         raise GeminiError("API ключ Google Gemini не указан.")
 
     preferred_model = model or getattr(config, "GEMINI_MODEL", "gemini-3.7-flash")
+    
+    # Список самых стабильных и быстрых моделей в порядке приоритета
     models_to_try = [preferred_model]
-    for m in ["gemini-3.7-flash", "gemini-3.5-flash", "gemini-flash-latest"]:
-        if m not in models_to_try:
-            models_to_try.append(m)
+    for fallback_m in ["gemini-3.5-flash", "gemini-3.7-flash", "gemini-flash-lite-latest", "gemini-3.6-flash"]:
+        if fallback_m not in models_to_try:
+            models_to_try.append(fallback_m)
 
     proxy_url = getattr(config, "PROXY_URL", None) or None
 
@@ -53,7 +55,10 @@ async def ask_gemini(
     })
 
     payload: Dict[str, Any] = {
-        "contents": contents
+        "contents": contents,
+        "generationConfig": {
+            "maxOutputTokens": 8192
+        }
     }
 
     if system_instruction:
@@ -97,13 +102,9 @@ async def ask_gemini(
                         except Exception:
                             err_msg = response_text
 
-                        if status == 503 or "high demand" in err_msg.lower():
-                            last_error_msg = f"Модель {current_model} временно перегружена (503)."
-                            await asyncio.sleep(1.0)
-                            continue
-                        elif status == 429:
-                            last_error_msg = "Превышен лимит запросов Google API (429)."
-                            await asyncio.sleep(1.0)
+                        if status in (503, 429) or "high demand" in err_msg.lower() or "quota" in err_msg.lower():
+                            last_error_msg = f"Модель {current_model} временно занята ({status})."
+                            await asyncio.sleep(0.5)
                             continue
                         elif status in (401, 403):
                             raise GeminiError("⛔ Неверный или заблокированный API ключ Google Gemini.")
@@ -112,10 +113,10 @@ async def ask_gemini(
                             break
 
                 except asyncio.TimeoutError:
-                    last_error_msg = "Таймаут ожидания ответа от Google API."
-                    await asyncio.sleep(1.0)
+                    last_error_msg = f"Таймаут ожидания {current_model}."
+                    await asyncio.sleep(0.5)
                 except aiohttp.ClientError as e:
                     last_error_msg = f"Сетевая ошибка: {e}"
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(0.5)
 
-    raise GeminiError(f"Не удалось получить ответ от Google Gemini: {last_error_msg}")
+    raise GeminiError(f"Серверы Google Gemini были временно перегружены. Попробуйте еще раз через пару секунд.")
