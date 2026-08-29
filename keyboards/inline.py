@@ -54,9 +54,47 @@ def get_admin_main_kb(is_super_admin: bool = False) -> InlineKeyboardMarkup:
         ]
     ]
     if is_super_admin:
-        keyboard.insert(1, [
+        keyboard.insert(0, [
+            InlineKeyboardButton(text="🍌 Nano Banana 2 (Генерация)", callback_data="admin_nano_banana")
+        ])
+        keyboard.insert(2, [
             InlineKeyboardButton(text="📢 Рассылка всем", callback_data="admin_broadcast")
         ])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_nano_banana_menu_kb(selected_count: int = 1) -> InlineKeyboardMarkup:
+    """Меню генерации Nano Banana 2 с выбором количества (1-4)."""
+    count_buttons = []
+    for count in [1, 2, 3, 4]:
+        check = "✅ " if count == selected_count else ""
+        count_buttons.append(
+            InlineKeyboardButton(
+                text=f"{check}{count} 🖼",
+                callback_data=f"banana_count:{count}"
+            )
+        )
+    keyboard = [
+        count_buttons,
+        [
+            InlineKeyboardButton(text="✍️ Ввести запрос (промпт)", callback_data=f"banana_enter_prompt:{selected_count}")
+        ],
+        [
+            InlineKeyboardButton(text="◀️ Назад в админ-панель", callback_data="admin_main")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_banana_result_kb() -> InlineKeyboardMarkup:
+    """Кнопки под сгенерированным изображением."""
+    keyboard = [
+        [
+            InlineKeyboardButton(text="🔄 Повторить генерацию", callback_data="banana_retry"),
+            InlineKeyboardButton(text="🍌 Новый запрос", callback_data="admin_nano_banana")
+        ],
+        [
+            InlineKeyboardButton(text="◀️ Назад в админ-панель", callback_data="admin_main")
+        ]
+    ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_admin_back_kb() -> InlineKeyboardMarkup:

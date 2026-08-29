@@ -4,7 +4,9 @@ from .inline import (
     get_cancel_kb,
     get_admin_main_kb,
     get_admin_back_kb,
-    get_reveal_details_kb
+    get_reveal_details_kb,
+    get_nano_banana_menu_kb,
+    get_banana_result_kb
 )
 from .reply import get_main_menu_kb
 
@@ -15,5 +17,7 @@ __all__ = [
     "get_admin_main_kb",
     "get_admin_back_kb",
     "get_reveal_details_kb",
+    "get_nano_banana_menu_kb",
+    "get_banana_result_kb",
     "get_main_menu_kb"
 ]

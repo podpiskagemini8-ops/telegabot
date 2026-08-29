@@ -28,3 +28,7 @@ SUPER_ADMIN_ID: int = 7213741349
 
 # Прокси (если используется)
 PROXY_URL: str = os.getenv("PROXY_URL", "").strip() or os.getenv("HTTPS_PROXY", "").strip() or os.getenv("HTTP_PROXY", "").strip()
+
+# API ключ Google Gemini / Nano Banana
+GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "").strip()
+GEMINI_IMAGE_MODEL: str = os.getenv("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image").strip()
