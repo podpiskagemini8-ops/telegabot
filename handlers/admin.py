@@ -18,7 +18,9 @@ from keyboards.inline import (
     get_gemini_reply_kb,
     get_gemini_confirm_delete_kb,
     get_masha_chats_list_kb,
-    get_masha_chat_view_kb
+    get_masha_chat_view_kb,
+    get_alena_chats_list_kb,
+    get_alena_chat_view_kb
 )
 from services.gemini_ai import ask_gemini, GeminiError
 
@@ -853,4 +855,95 @@ async def callback_masha_chat_view(callback: CallbackQuery, state: FSMContext):
         callback,
         text,
         reply_markup=get_masha_chat_view_kb(chat_id)
+    )
+
+# --- ПАНЕЛЬ СУПЕРАДМИНА: ПРОСМОТР ДИАЛОГОВ АЛЁНЫ С GEMINI ---
+
+@router.callback_query(F.data == "admin_alena_gemini")
+async def callback_admin_alena_gemini(callback: CallbackQuery, state: FSMContext):
+    """Просмотр списка диалогов Алёны (доступно только главному админу)."""
+    user_id = callback.from_user.id
+    if not is_super_admin_user(user_id):
+        await callback.answer("⛔ Этот раздел доступен только главному администратору.", show_alert=True)
+        return
+
+    alena_id = getattr(config, "ALENA_ID", 5600394873)
+    alena_chats = await db.get_user_ai_chats(alena_id)
+
+    if not alena_chats:
+        text = (
+            "🌷 <b>ДИАЛОГИ АЛЁНЫ С GEMINI</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Администратор Алёна (ID: <code>{alena_id}</code>)\n\n"
+            "У Алёны пока нет сохранённых диалогов с ИИ в базе данных."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Проверить снова", callback_data="admin_alena_gemini")],
+            [InlineKeyboardButton(text="◀️ Назад в админ-панель", callback_data="admin_main")]
+        ])
+        await _safe_edit_message(callback, text, reply_markup=kb)
+        return
+
+    text = (
+        f"🌷 <b>ДИАЛОГИ АЛЁНЫ С GEMINI (ID: {alena_id})</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 Всего диалогов в базе: <b>{len(alena_chats)}</b> шт.\n\n"
+        "Нажмите на любой диалог, чтобы прочитать всю историю переписки:"
+    )
+
+    await _safe_edit_message(
+        callback,
+        text,
+        reply_markup=get_alena_chats_list_kb(alena_chats)
+    )
+
+@router.callback_query(F.data.startswith("alena_chat_view:"))
+async def callback_alena_chat_view(callback: CallbackQuery, state: FSMContext):
+    """Чтение полной переписки конкретного диалога Алёны."""
+    user_id = callback.from_user.id
+    if not is_super_admin_user(user_id):
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    chat_id = int(callback.data.split(":")[1])
+    alena_id = getattr(config, "ALENA_ID", 5600394873)
+    chat = await db.get_ai_chat(chat_id, alena_id)
+
+    if not chat:
+        await callback.answer("❌ Диалог не найден.", show_alert=True)
+        await callback_admin_alena_gemini(callback, state)
+        return
+
+    messages = await db.get_ai_messages(chat_id, alena_id, limit=40)
+
+    msg_blocks = []
+    if messages:
+        for m in messages:
+            if m["role"] == "user":
+                role_header = "👤 <b>Алёна:</b>"
+            else:
+                role_header = "🤖 <b>Gemini:</b>"
+            
+            content = html.escape(m["content"].strip())
+            if len(content) > 350:
+                content = content[:350] + "..."
+            msg_blocks.append(f"{role_header}\n{content}\n")
+    else:
+        msg_blocks.append("<i>В этом диалоге ещё нет сообщений.</i>")
+
+    history_text = "\n".join(msg_blocks)
+
+    text = (
+        f"🌷 <b>ПЕРЕПИСКА АЛЁНЫ:</b> «{html.escape(chat['title'])}»\n"
+        f"📅 Обновлён: <code>{html.escape(str(chat.get('updated_at', ''))[:19])}</code>\n"
+        f"💬 Всего сообщений: <b>{len(messages)}</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{history_text}\n"
+        "━━━━━━━━━━━━━━━━━━━━"
+    )
+
+    await _safe_edit_message(
+        callback,
+        text,
+        reply_markup=get_alena_chat_view_kb(chat_id)
     )

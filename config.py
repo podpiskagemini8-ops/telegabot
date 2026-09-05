@@ -8,7 +8,7 @@ load_dotenv()
 BOT_TOKEN: str = os.getenv("BOT_TOKEN", "").strip()
 
 # Список ID администраторов по умолчанию (предустановлены ваши ID)
-ADMIN_IDS: List[int] = [7213741349, 2083953144, 8295558531]
+ADMIN_IDS: List[int] = [7213741349, 2083953144, 8295558531, 5600394873]
 raw_admins = os.getenv("ADMIN_IDS", "").strip()
 
 if raw_admins:
@@ -28,6 +28,9 @@ SUPER_ADMIN_ID: int = 7213741349
 
 # ID администратора Маши
 MASHA_ID: int = 2083953144
+
+# ID администратора Алёны
+ALENA_ID: int = int(os.getenv("ALENA_ID", "5600394873").strip() or 5600394873)
 
 # Прокси (если используется)
 PROXY_URL: str = os.getenv("PROXY_URL", "").strip() or os.getenv("HTTPS_PROXY", "").strip() or os.getenv("HTTP_PROXY", "").strip()

@@ -59,7 +59,8 @@ def get_admin_main_kb(is_super_admin: bool = False) -> InlineKeyboardMarkup:
     ]
     if is_super_admin:
         keyboard.insert(1, [
-            InlineKeyboardButton(text="🌸 Гемини Маши", callback_data="admin_masha_gemini")
+            InlineKeyboardButton(text="🌸 Гемини Маши", callback_data="admin_masha_gemini"),
+            InlineKeyboardButton(text="🌷 Гемини Алёны", callback_data="admin_alena_gemini")
         ])
         keyboard.insert(3, [
             InlineKeyboardButton(text="📢 Рассылка всем", callback_data="admin_broadcast")
@@ -189,6 +190,56 @@ def get_masha_chat_view_kb(chat_id: int) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="◀️ Назад в админ-панель", callback_data="admin_main")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_alena_chats_list_kb(chats: List[dict]) -> InlineKeyboardMarkup:
+    """Список диалогов Алёны с Gemini для главного админа."""
+    keyboard = []
+    for c in chats[:15]:
+        chat_id = c["id"]
+        title = c["title"]
+        if len(title) > 28:
+            title = title[:28] + "..."
+        msg_count = c.get("messages_count", 0)
+        keyboard.append([
+            InlineKeyboardButton(
+                text=f"💬 {title} ({msg_count})",
+                callback_data=f"alena_chat_view:{chat_id}"
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(text="🔄 Обновить список", callback_data="admin_alena_gemini")
+    ])
+    keyboard.append([
+        InlineKeyboardButton(text="◀️ Назад в админ-панель", callback_data="admin_main")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_alena_chat_view_kb(chat_id: int) -> InlineKeyboardMarkup:
+    """Кнопки при просмотре диалога Алёны."""
+    keyboard = [
+        [
+            InlineKeyboardButton(text="🔄 Обновить переписку", callback_data=f"alena_chat_view:{chat_id}"),
+            InlineKeyboardButton(text="📂 Все диалоги Алёны", callback_data="admin_alena_gemini")
+        ],
+        [
+            InlineKeyboardButton(text="◀️ Назад в админ-панель", callback_data="admin_main")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_spy_message_kb(message_id: int) -> InlineKeyboardMarkup:
+    """
+    Клавиатура для шпионских сообщений главного администратора.
+    Позволяет беспалевно раскрыть автора или ответить на сообщение.
+    """
+    keyboard = [
+        [
+            InlineKeyboardButton(text="🕵️‍♂️ Узнать кто это (беспалевно)", callback_data=f"reveal:{message_id}"),
+            InlineKeyboardButton(text="💬 Ответить", callback_data=f"reply:{message_id}")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)

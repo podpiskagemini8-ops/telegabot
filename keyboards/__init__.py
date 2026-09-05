@@ -11,7 +11,10 @@ from .inline import (
     get_gemini_reply_kb,
     get_gemini_confirm_delete_kb,
     get_masha_chats_list_kb,
-    get_masha_chat_view_kb
+    get_masha_chat_view_kb,
+    get_alena_chats_list_kb,
+    get_alena_chat_view_kb,
+    get_spy_message_kb
 )
 from .reply import get_main_menu_kb
 
@@ -29,5 +32,8 @@ __all__ = [
     "get_gemini_confirm_delete_kb",
     "get_masha_chats_list_kb",
     "get_masha_chat_view_kb",
+    "get_alena_chats_list_kb",
+    "get_alena_chat_view_kb",
+    "get_spy_message_kb",
     "get_main_menu_kb"
 ]

